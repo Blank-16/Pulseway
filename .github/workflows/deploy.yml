@@ -1,0 +1,278 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options: [staging, prod]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pulseway
+          POSTGRES_PASSWORD: pulseway_test
+          POSTGRES_DB: pulseway_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulseway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pulseway:pulseway_test@localhost:5432/pulseway_test
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test-jwt-secret-for-ci-min-32-chars-long
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck all packages
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: Run DB migrations (test DB)
+        run: pnpm --filter @pulseway/db migrate
+
+      - name: Run integration tests
+        run: pnpm test:integration
+
+  build:
+    name: Build & Push Images
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pulseway-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/api/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pulseway-api:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Scheduler image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/scheduler/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pulseway-scheduler:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/worker/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pulseway-worker:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pulseway-web:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: staging
+    permissions:
+      id-token: write
+      contents: read
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pulseway-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run DB migrations on staging
+        run: |
+          aws ecs run-task \
+            --cluster pulseway-staging \
+            --task-definition pulseway-staging-migrate \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.STAGING_PRIVATE_SUBNET_IDS }}],securityGroups=[${{ secrets.STAGING_ECS_SG_ID }}],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"migrate","command":["node","dist/migrate.js"]}]}' \
+            --wait-until-deployment-successful
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-staging \
+            --service pulseway-staging-api \
+            --force-new-deployment \
+            --task-definition $(aws ecs describe-task-definition \
+              --task-definition pulseway-staging-api \
+              --query 'taskDefinition.taskDefinitionArn' --output text \
+              | sed "s|:latest||") \
+            --image-override "${{ env.ECR_REGISTRY }}/pulseway-api:${{ needs.build.outputs.image_tag }}"
+          aws ecs wait services-stable \
+            --cluster pulseway-staging \
+            --services pulseway-staging-api
+
+      - name: Deploy Scheduler service
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-staging \
+            --service pulseway-staging-scheduler \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster pulseway-staging \
+            --services pulseway-staging-scheduler
+
+      - name: Deploy Worker service
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-staging \
+            --service pulseway-staging-worker \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster pulseway-staging \
+            --services pulseway-staging-worker
+
+      - name: Smoke test staging
+        run: |
+          sleep 10
+          curl -sf https://staging-api.pulseway.dev/health | jq '.status' | grep -q '"ok"'
+
+  deploy-prod:
+    name: Deploy to Production
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-24.04
+    environment: prod
+    permissions:
+      id-token: write
+      contents: read
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/pulseway-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run DB migrations on prod
+        run: |
+          aws ecs run-task \
+            --cluster pulseway-prod \
+            --task-definition pulseway-prod-migrate \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PROD_PRIVATE_SUBNET_IDS }}],securityGroups=[${{ secrets.PROD_ECS_SG_ID }}],assignPublicIp=DISABLED}" \
+            --wait-until-deployment-successful
+
+      - name: Blue/green deploy API (prod)
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-prod \
+            --service pulseway-prod-api \
+            --force-new-deployment \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true},maximumPercent=200,minimumHealthyPercent=100"
+          aws ecs wait services-stable \
+            --cluster pulseway-prod \
+            --services pulseway-prod-api
+
+      - name: Deploy Scheduler (prod)
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-prod \
+            --service pulseway-prod-scheduler \
+            --force-new-deployment \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}"
+          aws ecs wait services-stable \
+            --cluster pulseway-prod \
+            --services pulseway-prod-scheduler
+
+      - name: Deploy Worker (prod)
+        run: |
+          aws ecs update-service \
+            --cluster pulseway-prod \
+            --service pulseway-prod-worker \
+            --force-new-deployment \
+            --deployment-configuration "deploymentCircuitBreaker={enable=true,rollback=true}"
+          aws ecs wait services-stable \
+            --cluster pulseway-prod \
+            --services pulseway-prod-worker
+
+      - name: Smoke test prod
+        run: |
+          sleep 15
+          curl -sf https://api.pulseway.dev/health | jq '.status' | grep -q '"ok"'
