@@ -1,0 +1,24 @@
+{
+  "name": "pulseway",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:integration": "docker compose -f tests/integration/docker-compose.test.yml up -d && sleep 3 && vitest run --config vitest.integration.config.ts",
+    "test:smoke": "turbo run test:smoke",
+    "test:integration:down": "docker compose -f tests/integration/docker-compose.test.yml down -v"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.3",
+    "typescript": "^5.8.3",
+    "@types/node": "^22.15.18"
+  }
+}
