@@ -2,6 +2,7 @@ import { loadConfig } from '@pulseway/config';
 import { closePool } from '@pulseway/db';
 import { CheckWorker } from './CheckWorker.js';
 import { AlertWorker } from './AlertWorker.js';
+import { DLQWorker } from './DLQWorker.js';
 import { closeWorkerRedis } from './redis.js';
 
 async function main(): Promise<void> {
@@ -9,6 +10,7 @@ async function main(): Promise<void> {
 
   const checkWorker = new CheckWorker();
   const alertWorker = new AlertWorker();
+  const dlqWorker   = new DLQWorker();
 
   let shuttingDown = false;
 
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
   process.on('uncaughtException',   (err)    => { console.error('Uncaught exception:', err);    process.exit(1); });
   process.on('unhandledRejection',  (reason) => { console.error('Unhandled rejection:', reason); process.exit(1); });
 
-  await Promise.all([checkWorker.start(), alertWorker.start()]);
+  await Promise.all([checkWorker.start(), alertWorker.start(), dlqWorker.start()]);
 }
 
 main().catch((err) => {
