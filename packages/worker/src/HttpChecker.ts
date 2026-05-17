@@ -1,4 +1,5 @@
 import https from 'node:https';
+import { globalCircuitBreaker } from './CircuitBreaker.js';
 import http from 'node:http';
 import dns from 'node:dns/promises';
 import net from 'node:net';
@@ -134,13 +135,31 @@ export class HttpChecker {
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         throw new Error(`Unsupported protocol: ${parsed.protocol}`);
       }
+
+      // Short-circuit if host circuit is open — avoids timeout wait under sustained failures
+      if (globalCircuitBreaker.isOpen(parsed.hostname)) {
+        return {
+          status        : 'down',
+          statusCode    : null,
+          responseTimeMs: Date.now() - startTime,
+          errorMessage  : `Circuit open for ${parsed.hostname} — skipping check`,
+        };
+      }
+
       await assertSafeHost(parsed.hostname);
 
       const { statusCode } = await makeRequest(params.url, params.httpMethod, params.requestHeaders, MAX_REDIRECTS);
       const responseTimeMs = Date.now() - startTime;
       const status: MonitorStatus = statusCode === params.expectedStatusCode ? 'up' : 'degraded';
+      globalCircuitBreaker.recordSuccess(parsed.hostname);
       return { status, statusCode, responseTimeMs, errorMessage: null };
     } catch (err) {
+      try {
+        const hostname = new URL(params.url).hostname;
+        globalCircuitBreaker.recordFailure(hostname);
+      } catch {
+        // URL parse may fail — not a circuit breaker concern
+      }
       return {
         status        : 'down',
         statusCode    : null,
