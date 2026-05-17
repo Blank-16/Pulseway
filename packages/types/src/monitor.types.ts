@@ -15,6 +15,7 @@ export interface Monitor {
   isActive: boolean;
   lastCheckedAt: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface CheckResult {

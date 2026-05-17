@@ -14,6 +14,7 @@ interface MonitorRow {
   is_active: boolean;
   last_checked_at: Date | null;
   created_at: Date;
+  updated_at: Date;
 }
 
 function toMonitor(row: MonitorRow): Monitor {
@@ -30,6 +31,7 @@ function toMonitor(row: MonitorRow): Monitor {
     isActive: row.is_active,
     lastCheckedAt: row.last_checked_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at?.toISOString() ?? row.created_at.toISOString(),
   };
 }
 
@@ -75,16 +77,37 @@ export class MonitorRepository {
   }
 
 
-  async findByWorkspace(workspaceId: string): Promise<Monitor[]> {
+  async findByWorkspace(
+    workspaceId: string,
+    pageSize = 200,
+    cursor?: string,
+  ): Promise<{ monitors: Monitor[]; nextCursor: string | null }> {
     const pool = getPool();
-    const { rows } = await pool.query<MonitorRow>(
-      'SELECT * FROM monitors WHERE workspace_id = $1 ORDER BY created_at',
-      [workspaceId],
-    );
-    return rows.map(toMonitor);
+    const safe = Math.min(pageSize, 500);
+    const { rows } = cursor
+      ? await pool.query<MonitorRow>(
+          `SELECT * FROM monitors
+           WHERE workspace_id = $1 AND deleted_at IS NULL AND (created_at, id) > ($2::timestamptz, $3::uuid)
+           ORDER BY created_at, id LIMIT $4`,
+          [workspaceId, ...JSON.parse(Buffer.from(cursor, 'base64url').toString()) as [string, string], safe],
+        )
+      : await pool.query<MonitorRow>(
+          `SELECT * FROM monitors
+           WHERE workspace_id = $1 AND deleted_at IS NULL
+           ORDER BY created_at, id LIMIT $2`,
+          [workspaceId, safe],
+        );
+
+    const monitors  = rows.map(toMonitor);
+    const last      = rows[rows.length - 1];
+    const nextCursor = monitors.length === safe && last
+      ? Buffer.from(JSON.stringify([last.created_at.toISOString(), last.id])).toString('base64url')
+      : null;
+
+    return { monitors, nextCursor };
   }
 
-  async update(id: string, patch: Partial<CreateMonitorDTO> & { isActive?: boolean }): Promise<Monitor | null> {
+  async update(id: string, patch: Partial<CreateMonitorDTO> & { isActive?: boolean }, expectedUpdatedAt?: string): Promise<Monitor | null> {
     const pool = getPool();
     const setClauses: string[] = [];
     const values: unknown[] = [];
@@ -120,6 +143,22 @@ export class MonitorRepository {
 
     if (setClauses.length === 0) return this.findById(id);
 
+    if (expectedUpdatedAt) {
+      setClauses.push(`updated_at = updated_at`); // no-op to force a returning check
+      values.push(id);
+      values.push(new Date(expectedUpdatedAt));
+      const { rows } = await pool.query<MonitorRow>(
+        `UPDATE monitors SET ${setClauses.join(', ')} WHERE id = $${idx} AND updated_at = $${idx + 1} RETURNING *`,
+        values,
+      );
+      if (rows.length === 0) {
+        // Either not found or stale — disambiguate
+        const exists = await this.findById(id);
+        if (!exists) return null;
+        throw Object.assign(new Error('Conflict: monitor was updated by another request'), { statusCode: 409 });
+      }
+      return toMonitor(rows[0]!);
+    }
     values.push(id);
     const { rows } = await pool.query<MonitorRow>(
       `UPDATE monitors SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING *`,
