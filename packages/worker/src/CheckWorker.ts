@@ -13,6 +13,8 @@ import { Semaphore } from './Semaphore.js';
 import { getDataClient, getPubClient } from './redis.js';
 import { logger, jobLogger } from './logger.js';
 import { WorkerMetrics, WORKER_METRIC } from './WorkerMetrics.js';
+import { extractTraceContext } from './telemetry.js';
+import { context as otelContext } from '@opentelemetry/api';
 import type { SqsCheckJob } from '@pulseway/types';
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -100,8 +102,11 @@ export class CheckWorker {
     const log = jobLogger(message.MessageId ?? 'unknown', job.monitorId);
 
     try {
+      const traceCtx = extractTraceContext(
+        (message.MessageAttributes ?? {}) as Record<string, { StringValue?: string }>,
+      );
       log.debug({ url: job.url, region: job.region }, 'Starting check');
-      await this.executeCheck(job, log);
+      await otelContext.with(traceCtx, () => this.executeCheck(job, log));
       await this.deleteMessage(queueUrl, message.ReceiptHandle);
       log.debug('Check completed');
     } catch (err) {

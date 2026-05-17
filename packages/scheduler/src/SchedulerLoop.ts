@@ -7,6 +7,8 @@ import {
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs';
 import type { Monitor, SqsCheckJob } from '@pulseway/types';
+import { recordSchedulerTick } from './metrics.js';
+import { injectTraceContext } from '../worker/src/telemetry.js';
 
 const LOCK_KEY    = 'scheduler:lock';
 const LOCK_TTL_MS = 15_000;
@@ -88,8 +90,8 @@ export class SchedulerLoop {
       console.info(`Scheduler: ${dueMonitors.length} monitors due`);
 
       await this.monitorRepo.updateLastCheckedAt(dueMonitors.map((m) => m.id));
-      // Rate-limit concurrent SQS calls to avoid per-second burst throttling
       await pLimit(dueMonitors, ENQUEUE_CONCURRENCY, (m) => this.enqueueChecks(m));
+      await recordSchedulerTick(this.redis);
     } finally {
       const current = await this.redis.get(LOCK_KEY);
       if (current === this.lockValue) await this.redis.del(LOCK_KEY);
@@ -114,6 +116,7 @@ export class SchedulerLoop {
         MessageBody            : JSON.stringify(job),
         MessageGroupId         : monitor.workspaceId,
         MessageDeduplicationId : `${monitor.id}-${region}-${Date.now()}`,
+        MessageAttributes      : injectTraceContext(),
       };
     });
 
