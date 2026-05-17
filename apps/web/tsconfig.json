@@ -1,15 +1,18 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
+    "lib":            ["ES2022", "DOM", "DOM.Iterable"],
+    "module":         "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "preserve",
-    "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./*"]
-    }
+    "jsx":            "preserve",
+    "incremental":    false,
+    "plugins":        [{ "name": "next" }],
+    "paths":          { "@/*": ["./*"] },
+    "noUncheckedIndexedAccess":         true,
+    "exactOptionalPropertyTypes":       true,
+    "noImplicitOverride":               true,
+    "noPropertyAccessFromIndexSignature": true
   },
-  "include": ["**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include":  ["**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude":  ["node_modules"]
 }
