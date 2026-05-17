@@ -10,3 +10,7 @@ export { RefreshTokenRepository } from './repositories/RefreshTokenRepository.js
 export { NotificationChannelRepository } from './repositories/NotificationChannelRepository.js';
 
 export { EmailVerificationRepository } from './repositories/EmailVerificationRepository.js';
+
+export { ApiKeyRepository } from './repositories/ApiKeyRepository.js';
+export { PasswordResetRepository } from './repositories/PasswordResetRepository.js';
+export { StatsRepository } from './repositories/StatsRepository.js';
