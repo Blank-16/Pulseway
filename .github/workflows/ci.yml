@@ -1,68 +1,130 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.head_ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: CI
-    runs-on: ubuntu-24.04
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # tsc --build checks the full reference graph in one pass
+      - run: pnpm exec tsc --build
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --reporter=verbose
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: pulseway
-          POSTGRES_PASSWORD: pulseway_test
+          POSTGRES_PASSWORD: pulseway
           POSTGRES_DB: pulseway_test
-        ports: ["5432:5432"]
+        ports: ['5433:5432']
         options: >-
-          --health-cmd "pg_isready -U pulseway"
-          --health-interval 5s
+          --health-cmd pg_isready
+          --health-interval 2s
           --health-timeout 5s
           --health-retries 10
       redis:
         image: redis:7-alpine
-        ports: ["6379:6379"]
+        ports: ['6380:6379']
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 5s
+          --health-interval 2s
           --health-timeout 5s
           --health-retries 10
-    env:
-      DATABASE_URL: postgresql://pulseway:pulseway_test@localhost:5432/pulseway_test
-      REDIS_URL: redis://localhost:6379
-      JWT_SECRET: test-jwt-secret-for-ci-min-32-chars-long
-      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --config vitest.integration.config.ts
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Migrate test DB
-        run: pnpm --filter @pulseway/db migrate
-
-      - name: Integration tests
-        run: pnpm test:integration
-
-      - name: Build all packages
-        run: pnpm build
+  preview-deploy:
+    name: Preview Deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [typecheck, unit-tests]
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --build
+      - name: Deploy preview
+        id: deploy
+        run: |
+          echo "url=https://pr-${{ github.event.number }}.preview.pulseway.dev" >> $GITHUB_OUTPUT
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Post preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 Preview deployed: ${{ steps.deploy.outputs.url }}`
+            })
