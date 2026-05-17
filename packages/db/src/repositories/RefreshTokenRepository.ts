@@ -8,6 +8,8 @@ interface RefreshTokenRow {
   expires_at  : Date;
   revoked     : boolean;
   replaced_by : string | null;
+  session_id  : string;
+  device_name : string | null;
   created_at  : Date;
 }
 
@@ -16,14 +18,15 @@ export class RefreshTokenRepository {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  async create(userId: string, expiryDays: number): Promise<string> {
+  async create(userId: string, expiryDays: number, sessionId?: string, deviceName?: string): Promise<string> {
     const token     = randomBytes(48).toString('hex');
     const hash      = this.hashToken(token);
     const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
     const pool      = getPool();
     await pool.query(
-      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-      [userId, hash, expiresAt],
+      `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, session_id, device_name)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, hash, expiresAt, sessionId ?? crypto.randomUUID(), deviceName ?? null],
     );
     return token;
   }
@@ -131,18 +134,12 @@ export class RefreshTokenRepository {
     client: Awaited<ReturnType<ReturnType<typeof getPool>['connect']>>,
     rootId: string,
   ): Promise<void> {
-    // Walk the chain via replaced_by — bounded by the number of rotations (max 90 days / rotation cadence)
+    // Revoke all tokens in the same session — per-device isolation
+    // prevents a stolen token on one device from invalidating other sessions
     await client.query(
-      `WITH RECURSIVE chain AS (
-         SELECT id FROM refresh_tokens WHERE id = $1
-         UNION ALL
-         SELECT rt.id FROM refresh_tokens rt
-           INNER JOIN chain c ON rt.id = (
-             SELECT replaced_by FROM refresh_tokens WHERE id = c.id
-           )
-       )
-       UPDATE refresh_tokens SET revoked = true
-       WHERE id IN (SELECT id FROM chain)`,
+      `UPDATE refresh_tokens
+       SET revoked = true
+       WHERE session_id = (SELECT session_id FROM refresh_tokens WHERE id = $1)`,
       [rootId],
     );
   }
