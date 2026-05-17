@@ -5,6 +5,7 @@ import { authorize } from '../middleware/authorize.js';
 import { validateBody, validateQuery } from '../middleware/validate-body.js';
 import { handler, authHandler } from '../middleware/handler.js';
 import { MonitorService } from '../services/MonitorService.js';
+import { auditService } from '../services/AuditService.js';
 import { CheckResultRepository } from '@pulseway/db';
 
 const CreateMonitorSchema = z.object({
@@ -36,8 +37,10 @@ export function monitorRoutes(): Router {
   router.get('/workspace/:workspaceId',
     authHandler(authorize('viewer')),
     authHandler(async (req, res) => {
-      const monitors = await monitorService.list(req.params['workspaceId']!);
-      res.json({ data: monitors });
+      const pageSize = Math.min(Number(req.query['pageSize'] ?? 200), 500);
+      const cursor   = typeof req.query['cursor'] === 'string' ? req.query['cursor'] : undefined;
+      const result   = await monitorService.list(req.params['workspaceId']!, pageSize, cursor);
+      res.json({ data: result.monitors, nextCursor: result.nextCursor });
     }),
   );
 
@@ -46,6 +49,7 @@ export function monitorRoutes(): Router {
     handler(validateBody(CreateMonitorSchema)),
     authHandler(async (req, res) => {
       const monitor = await monitorService.create(req.params['workspaceId']!, req.body);
+      auditService.log({ workspaceId: req.params['workspaceId']!, action: 'monitor.create', resourceType: 'monitor', resourceId: monitor.id, diff: req.body, req });
       res.status(201).json({ data: monitor });
     }),
   );
@@ -69,7 +73,12 @@ export function monitorRoutes(): Router {
     authHandler(authorize('admin')),
     handler(validateBody(UpdateMonitorSchema)),
     authHandler(async (req, res) => {
-      const monitor = await monitorService.update(req.params['id']!, req.params['workspaceId']!, req.body);
+      // If-Match: <updatedAt> enables optimistic locking — 409 on stale write
+      const ifMatch = req.headers['if-match'] as string | undefined;
+      const monitor = await monitorService.update(
+        req.params['id']!, req.params['workspaceId']!, req.body, ifMatch,
+      );
+      auditService.log({ workspaceId: req.params['workspaceId']!, action: 'monitor.update', resourceType: 'monitor', resourceId: monitor.id, diff: req.body, req });
       res.json({ data: monitor });
     }),
   );
@@ -78,6 +87,7 @@ export function monitorRoutes(): Router {
     authHandler(authorize('admin')),
     authHandler(async (req, res) => {
       await monitorService.delete(req.params['id']!, req.params['workspaceId']!);
+      auditService.log({ workspaceId: req.params['workspaceId']!, action: 'monitor.delete', resourceType: 'monitor', resourceId: req.params['id']!, req });
       res.status(204).end();
     }),
   );

@@ -5,6 +5,7 @@ import { authorize } from '../middleware/authorize.js';
 import { validateBody } from '../middleware/validate-body.js';
 import { handler, authHandler } from '../middleware/handler.js';
 import { IncidentService } from '../services/IncidentService.js';
+import { auditService } from '../services/AuditService.js';
 
 const NoteSchema = z.object({ note: z.string().min(1).max(2000) });
 
@@ -38,6 +39,7 @@ export function incidentRoutes(): Router {
     authHandler(authorize('admin')),
     authHandler(async (req, res) => {
       const incident = await incidentService.acknowledge(req.params['id']!, req.params['workspaceId']!, req.user.id);
+      auditService.log({ workspaceId: req.params['workspaceId']!, action: 'incident.acknowledge', resourceType: 'incident', resourceId: req.params['id']!, req });
       res.json({ data: incident });
     }),
   );
@@ -46,6 +48,7 @@ export function incidentRoutes(): Router {
     authHandler(authorize('admin')),
     authHandler(async (req, res) => {
       const incident = await incidentService.resolve(req.params['id']!, req.params['workspaceId']!, req.user.id);
+      auditService.log({ workspaceId: req.params['workspaceId']!, action: 'incident.resolve', resourceType: 'incident', resourceId: req.params['id']!, req });
       res.json({ data: incident });
     }),
   );

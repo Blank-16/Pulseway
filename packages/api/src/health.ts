@@ -1,27 +1,25 @@
 import type { Request, Response } from 'express';
 import { getPool } from '@pulseway/db';
-import { getCacheClient } from '../redis.js';
+import { getCacheClient } from './redis.js';
 
-interface HealthStatus {
-  status: 'ok' | 'degraded' | 'unhealthy';
-  uptime: number;
-  checks: {
-    database: 'ok' | 'error';
-    redis: 'ok' | 'error';
-  };
+// /health/live — process is running; used by container liveness probe
+export function livenessHandler(_req: Request, res: Response): void {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
 }
 
-export async function healthHandler(req: Request, res: Response): Promise<void> {
-  const checks: HealthStatus['checks'] = { database: 'ok', redis: 'ok' };
+// /health/ready — all dependencies reachable; used by load balancer readiness probe
+export async function readinessHandler(_req: Request, res: Response): Promise<void> {
+  const checks: Record<string, 'ok' | 'error'> = { database: 'ok', redis: 'ok' };
 
   await Promise.allSettled([
     getPool().query('SELECT 1').catch(() => { checks.database = 'error'; }),
     getCacheClient().ping().catch(() => { checks.redis = 'error'; }),
   ]);
 
-  const allOk  = checks.database === 'ok' && checks.redis === 'ok';
-  const status : HealthStatus['status'] = allOk ? 'ok' : 'degraded';
-  const httpStatus = allOk ? 200 : 503;
-
-  res.status(httpStatus).json({ status, uptime: process.uptime(), checks });
+  const allOk  = Object.values(checks).every((v) => v === 'ok');
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? 'ready' : 'unavailable',
+    checks,
+    uptime: process.uptime(),
+  });
 }

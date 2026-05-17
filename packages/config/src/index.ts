@@ -19,6 +19,7 @@ const EnvSchema = z.object({
   AWS_ENDPOINT_URL                       : z.string().url().optional(),
   CHECK_JOBS_QUEUE_URL                   : z.string().url(),
   ALERT_JOBS_QUEUE_URL                   : z.string().url(),
+  CHECK_JOBS_DLQ_URL                     : z.string().url().optional(),
   JWT_SECRET                             : z.string().min(32),
   JWT_EXPIRY_SECONDS                     : z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_EXPIRY_DAYS              : z.coerce.number().int().min(1).max(90).default(7),

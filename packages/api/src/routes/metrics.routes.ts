@@ -38,8 +38,21 @@ export function metricsRoutes(sseManager: SSEManager): Router {
       // Non-fatal — scraper will see empty worker section
     }
 
+    // Scheduler last tick
+    let schedulerSection = '';
+    try {
+      const lastTick = await redis.get('metrics:scheduler:last_tick_at');
+      if (lastTick) {
+        schedulerSection  = '# HELP pulseway_scheduler_last_tick_timestamp Unix timestamp of last scheduler tick\n';
+        schedulerSection += '# TYPE pulseway_scheduler_last_tick_timestamp gauge\n';
+        schedulerSection += `pulseway_scheduler_last_tick_timestamp ${lastTick}\n`;
+      }
+    } catch {
+      // Non-fatal
+    }
+
     res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
-    res.send(renderMetrics() + workerSection);
+    res.send(renderMetrics() + workerSection + schedulerSection);
   });
 
   return router;

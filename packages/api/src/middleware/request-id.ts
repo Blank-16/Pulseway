@@ -1,22 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
-import { logger } from '../logger.js';
+import { trace, context } from '@opentelemetry/api';
 
-declare global {
-  namespace Express {
-    interface Request {
-      id: string;
-      log: typeof logger;
-    }
+declare module 'express' {
+  interface Request {
+    id: string;
   }
 }
 
 export function requestId(): RequestHandler {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const id = (req.headers['x-request-id'] as string | undefined) ?? randomUUID();
-    req.id = id;
-    req.log = logger.child({ requestId: id });
-    res.setHeader('X-Request-Id', id);
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    req.id = (req.headers['x-request-id'] as string | undefined) ?? randomUUID();
+
+    // Attach OTEL trace/span IDs to the request so pino-http can pick them up
+    const span    = trace.getActiveSpan();
+    const spanCtx = span?.spanContext();
+    if (spanCtx) {
+      (req as Request & { traceId: string; spanId: string }).traceId = spanCtx.traceId;
+      (req as Request & { traceId: string; spanId: string }).spanId  = spanCtx.spanId;
+    }
+
     next();
   };
 }

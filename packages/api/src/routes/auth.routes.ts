@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { handler, authHandler } from '../middleware/handler.js';
 import { validateBody } from '../middleware/validate-body.js';
 import { AppError, ErrorCode } from '../errors.js';
+import { PasswordResetService } from '../services/PasswordResetService.js';
 
 const RegisterSchema = z.object({
   name    : z.string().min(1).max(100).trim(),
@@ -19,6 +20,13 @@ const LoginSchema = z.object({
 
 const VerifyEmailSchema = z.object({
   token: z.string().min(1),
+});
+
+
+const ForgotPasswordSchema = z.object({ email: z.string().email().toLowerCase() });
+const ResetPasswordSchema = z.object({
+  token   : z.string().min(1),
+  password: z.string().min(8).max(128),
 });
 
 const REFRESH_COOKIE = 'pulseway_refresh';
@@ -75,6 +83,26 @@ export function authRoutes(): Router {
     handler(validateBody(VerifyEmailSchema)),
     handler(async (req, res) => {
       await authService.verifyEmail(req.body.token);
+      res.json({ data: { ok: true } });
+    }),
+  );
+
+
+  const passwordResetService = new PasswordResetService();
+
+  router.post('/forgot-password',
+    handler(validateBody(ForgotPasswordSchema)),
+    handler(async (req, res) => {
+      // Always 200 — never reveal whether email exists
+      await passwordResetService.requestReset(req.body.email).catch(() => null);
+      res.json({ data: { ok: true } });
+    }),
+  );
+
+  router.post('/reset-password',
+    handler(validateBody(ResetPasswordSchema)),
+    handler(async (req, res) => {
+      await passwordResetService.resetPassword(req.body.token, req.body.password);
       res.json({ data: { ok: true } });
     }),
   );
