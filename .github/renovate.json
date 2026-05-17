@@ -1,0 +1,51 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["every weekend"],
+  "timezone": "UTC",
+  "labels": ["dependencies"],
+  "assignees": [],
+  "prConcurrentLimit": 5,
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Security patches — merge immediately",
+      "matchUpdateTypes": ["patch"],
+      "matchCategories": ["security"],
+      "automerge": true,
+      "schedule": ["at any time"]
+    },
+    {
+      "description": "Group AWS SDK updates",
+      "matchPackagePrefixes": ["@aws-sdk/"],
+      "groupName": "AWS SDK",
+      "schedule": ["every weekend"]
+    },
+    {
+      "description": "Group OpenTelemetry updates",
+      "matchPackagePrefixes": ["@opentelemetry/"],
+      "groupName": "OpenTelemetry",
+      "schedule": ["every weekend"]
+    },
+    {
+      "description": "Group all minor + patch non-security updates",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "All non-major deps",
+      "schedule": ["every weekend"]
+    },
+    {
+      "description": "Major versions — require manual review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major-update"]
+    },
+    {
+      "description": "Critical security packages — high priority",
+      "matchPackageNames": ["jsonwebtoken", "bcryptjs", "stripe", "express", "helmet"],
+      "prPriority": 10,
+      "schedule": ["at any time"]
+    }
+  ],
+  "ignorePaths": ["**/node_modules/**", "**/dist/**"],
+  "postUpdateOptions": ["npmDedupe"]
+}
