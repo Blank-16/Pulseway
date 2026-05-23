@@ -1,62 +1,48 @@
 #!/usr/bin/env tsx
 /**
- * Run monthly via EventBridge Scheduler.
- * Deletes expired/revoked refresh tokens and pre-creates upcoming partitions.
+ * Creates next 3 months of check_results partitions.
+ * Schedule via cron (1st of each month) or AWS EventBridge.
  */
 import { loadConfig } from '@pulseway/config';
 import { getPool, closePool } from '@pulseway/db';
 
-async function runMaintenance(): Promise<void> {
+async function ensurePartitions(): Promise<void> {
   await loadConfig();
   const pool = getPool();
 
-  console.info('Running maintenance...');
-
-  // Prune expired/revoked refresh tokens
-  const { rowCount: pruned } = await pool.query('SELECT prune_expired_refresh_tokens()');
-  console.info(`Pruned refresh tokens`);
-
-  // Pre-create next 2 check_results partitions
   const now = new Date();
-  for (let offset = 1; offset <= 2; offset++) {
-    const target = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-    const next   = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
-    const year   = target.getFullYear();
-    const month  = String(target.getMonth() + 1).padStart(2, '0');
-    const ny     = next.getFullYear();
-    const nm     = String(next.getMonth() + 1).padStart(2, '0');
-    const name   = `check_results_${year}_${month}`;
+  for (let monthOffset = 0; monthOffset <= 2; monthOffset++) {
+    const start  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + monthOffset, 1));
+    const end    = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    const suffix = `${start.getUTCFullYear()}_${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+    const name   = `check_results_${suffix}`;
 
-    const { rows } = await pool.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM pg_class WHERE relname = $1`, [name],
+    const { rows } = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = $1
+       ) AS exists`,
+      [name],
     );
-    if (rows[0]?.count === '0') {
-      await pool.query(
-        `CREATE TABLE IF NOT EXISTS ${name} PARTITION OF check_results
-         FOR VALUES FROM ('${year}-${month}-01') TO ('${ny}-${nm}-01')`,
-      );
-      console.info(`Created partition: ${name}`);
+
+    if (rows[0]?.exists) {
+      console.log(`Partition ${name} already exists — skipping`);
+      continue;
     }
+
+    const sql = `
+      CREATE TABLE IF NOT EXISTS ${name}
+        PARTITION OF check_results
+        FOR VALUES FROM ('${start.toISOString()}') TO ('${end.toISOString()}');
+      CREATE INDEX IF NOT EXISTS idx_${name}_monitor_checked
+        ON ${name}(monitor_id, checked_at DESC);
+    `;
+
+    await pool.query(sql);
+    console.log(`Created partition: ${name} (${start.toISOString()} → ${end.toISOString()})`);
   }
-
-  // Drop partitions older than 13 months
-  const cutoff = new Date(now.getFullYear(), now.getMonth() - 13, 1);
-  const cy = cutoff.getFullYear();
-  const cm = String(cutoff.getMonth() + 1).padStart(2, '0');
-  const oldName = `check_results_${cy}_${cm}`;
-
-  const { rows: oldRows } = await pool.query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM pg_class WHERE relname = $1`, [oldName],
-  );
-  if ((oldRows[0]?.count ?? '0') !== '0') {
-    await pool.query(`DROP TABLE IF EXISTS ${oldName}`);
-    console.info(`Dropped old partition: ${oldName}`);
-  }
-
-  console.info('Maintenance complete.');
 }
 
-runMaintenance()
+ensurePartitions()
   .then(() => closePool())
   .then(() => process.exit(0))
   .catch((err) => { console.error('Maintenance failed:', err); process.exit(1); });
