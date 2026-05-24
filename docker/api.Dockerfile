@@ -1,9 +1,8 @@
-FROM node:22-alpine AS base
+FROM node:24-alpine AS base
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 
 FROM base AS deps
-# Copy manifests for all packages so pnpm installs the full workspace
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/types/package.json      packages/types/
 COPY packages/config/package.json     packages/config/
@@ -17,7 +16,6 @@ COPY packages/types      packages/types
 COPY packages/config     packages/config
 COPY packages/db         packages/db
 COPY packages/api        packages/api
-# tsc --build resolves the reference graph and builds only what's needed
 RUN pnpm exec tsc --build packages/api/tsconfig.json
 
 FROM base AS runner

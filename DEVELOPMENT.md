@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js >= 22
+- Node.js >= 24
 - pnpm >= 10 (`corepack enable && corepack prepare pnpm@latest --activate`)
 - Docker + Docker Compose (for Postgres, Redis, LocalStack)
 
