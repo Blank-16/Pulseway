@@ -15,6 +15,7 @@ export interface Incident {
   acknowledgedBy: string | null;
   resolvedAt: string | null;
   durationSeconds: number | null;
+  groupId: string | null;
 }
 
 export interface IncidentTimelineEvent {
