@@ -1,6 +1,8 @@
 import type Redis from 'ioredis';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { IncidentRepository } from '@pulseway/db';
+import { OnCallRepository } from '@pulseway/db';
+import { IncidentGrouper } from './IncidentGrouper.js';
 import { getConfig } from '@pulseway/config';
 import type { MonitorStatus, SqsAlertJob } from '@pulseway/types';
 
@@ -44,8 +46,13 @@ export class IncidentEvaluator {
     const openIncident = await this.incidentRepo.findOpenByMonitorId(monitorId);
     const allFailing   = recentResults.length === required && recentResults.every((r) => r !== 'up');
 
-    if (allFailing && !openIncident) {
+    // Suppress incident creation during active maintenance windows
+    const inMaintenance = await new OnCallRepository().isInMaintenance(workspaceId, monitorId);
+
+    if (allFailing && !openIncident && !inMaintenance) {
       const incident = await this.incidentRepo.insert(monitorId);
+      // Attempt to group with other concurrent incidents (infrastructure outage detection)
+      await this.incidentGrouper.maybeGroup(workspaceId, incident.id).catch(() => null);
       await this.incidentRepo.appendTimeline(
         incident.id, 'incident_opened', `Detected after ${required} consecutive failures`, null,
       );
@@ -62,6 +69,9 @@ export class IncidentEvaluator {
     if (latestStatus === 'up' && openIncident) {
       const resolved = await this.incidentRepo.resolve(openIncident.id);
       if (!resolved) return;
+      if (resolved.groupId) {
+        await this.incidentGrouper.resolveGroup(resolved.groupId).catch(() => null);
+      }
       await this.incidentRepo.appendTimeline(
         openIncident.id, 'incident_resolved', 'Resolved automatically after recovery', null,
       );

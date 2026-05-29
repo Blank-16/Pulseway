@@ -10,6 +10,7 @@ interface IncidentRow {
   acknowledged_by: string | null;
   resolved_at: Date | null;
   duration_seconds: number | null;
+  group_id: string | null;
 }
 
 interface TimelineRow {
@@ -31,6 +32,7 @@ function toIncident(row: IncidentRow): Incident {
     acknowledgedBy : row.acknowledged_by,
     resolvedAt     : row.resolved_at?.toISOString() ?? null,
     durationSeconds: row.duration_seconds,
+    groupId: row.group_id ?? null,
   };
 }
 
@@ -115,6 +117,22 @@ export class IncidentRepository {
    * not O(page*pageSize) like OFFSET.
    * cursor: base64-encoded JSON { startedAt: ISO string, id: string } of the last seen row.
    */
+
+  async findOpenByMonitorIds(monitorIds: string[]): Promise<Map<string, Incident>> {
+    if (monitorIds.length === 0) return new Map();
+    const pool = getPool();
+    const { rows } = await pool.query<IncidentRow>(
+      `SELECT DISTINCT ON (monitor_id) *
+       FROM incidents
+       WHERE monitor_id = ANY($1::uuid[])
+         AND status != 'resolved'
+       ORDER BY monitor_id, started_at DESC`,
+      [monitorIds],
+    );
+    return new Map(rows.map((r) => [r.monitor_id, toIncident(r)]));
+  }
+
+
   async findByWorkspace(
     workspaceId: string,
     pageSize: number,
