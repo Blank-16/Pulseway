@@ -19,6 +19,7 @@ import { statusRoutes } from './routes/status.routes.js';
 import { eventsRoutes } from './routes/events.routes.js';
 import { metricsRoutes } from './routes/metrics.routes.js';
 import { apiKeyRoutes } from './routes/api-keys.routes.js';
+import { featureFlagRoutes } from './routes/feature-flags.routes.js';
 import { openApiSpec } from './openapi.js';
 import { logger } from './logger.js';
 import { metricsAuth } from './middleware/metrics-auth.js';
@@ -90,9 +91,10 @@ export async function createApp(): Promise<AppInstance> {
   app.use('/api/incidents', incidentRoutes());
   app.use('/api/team',     teamRoutes());
   app.use('/api/billing',  billingRoutes());
-  app.use('/api/status',   statusRoutes());
+  app.use('/api/status',   statusRoutes(sseManager));
   app.use('/api/events',   eventsRoutes(sseManager));
   app.use('/api/api-keys', apiKeyRoutes());
+  app.use('/api/flags',    featureFlagRoutes());
 
   // /metrics requires bearer token from METRICS_TOKEN env var
   app.use('/metrics', metricsAuth(), metricsRoutes(sseManager));
