@@ -13,9 +13,12 @@ export interface Monitor {
   checkIntervalSeconds: CheckIntervalSeconds;
   regionCodes: string[];
   isActive: boolean;
-  lastCheckedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  lastCheckedAt    : string | null;
+  createdAt        : string;
+  updatedAt        : string;
+  bodyContains?    : string | null;
+  bodyJsonPath?    : string | null;
+  bodyJsonValue?   : string | null;
 }
 
 export interface CheckResult {
@@ -49,7 +52,10 @@ export interface CreateMonitorDTO {
   requestHeaders: Record<string, string>;
   expectedStatusCode: number;
   checkIntervalSeconds: CheckIntervalSeconds;
-  regionCodes: string[];
+  regionCodes     : string[];
+  bodyContains?   : string;
+  bodyJsonPath?   : string;
+  bodyJsonValue?  : string;
 }
 
 export interface UpdateMonitorDTO extends Partial<CreateMonitorDTO> {
