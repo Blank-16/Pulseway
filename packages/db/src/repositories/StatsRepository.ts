@@ -74,4 +74,30 @@ export class StatsRepository {
     );
     return parseFloat(rows[0]?.uptime ?? '100');
   }
+
+  /**
+   * Batch uptime query — single SQL call for all monitor IDs.
+   * Returns a Map<monitorId, uptimePercent>.
+   */
+  async getUptimePercentBatch(monitorIds: string[], days: number): Promise<Map<string, number>> {
+    if (monitorIds.length === 0) return new Map();
+    const pool = getPool();
+    const { rows } = await pool.query<{ monitor_id: string; uptime: string }>(
+      `SELECT
+         monitor_id,
+         ROUND(100.0 * SUM(up_count) / NULLIF(SUM(total_checks), 0), 4) AS uptime
+       FROM monitor_stats_hourly
+       WHERE monitor_id = ANY($1::uuid[])
+         AND hour_bucket >= NOW() - ($2 || ' days')::INTERVAL
+       GROUP BY monitor_id`,
+      [monitorIds, days],
+    );
+    const result = new Map<string, number>();
+    // Pre-fill 100% for monitors with no data (no checks = never failed)
+    for (const id of monitorIds) result.set(id, 100);
+    for (const row of rows) result.set(row.monitor_id, parseFloat(row.uptime ?? '100'));
+    return result;
+  }
+
+
 }
