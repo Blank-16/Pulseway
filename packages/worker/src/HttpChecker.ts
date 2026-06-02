@@ -6,17 +6,21 @@ import net from 'node:net';
 import type { MonitorStatus } from '@pulseway/types';
 
 export interface CheckResult {
-  status: MonitorStatus;
-  statusCode: number | null;
+  status       : MonitorStatus;
+  statusCode   : number | null;
   responseTimeMs: number;
-  errorMessage: string | null;
+  errorMessage : string | null;
+  failureReason: string | null;
 }
 
 interface CheckRequest {
-  url: string;
-  httpMethod: string;
-  requestHeaders: Record<string, string>;
+  url               : string;
+  httpMethod        : string;
+  requestHeaders    : Record<string, string>;
   expectedStatusCode: number;
+  bodyContains?     : string;
+  bodyJsonPath?     : string;
+  bodyJsonValue?    : string;
 }
 
 const TIMEOUT_MS = 10_000;
@@ -81,12 +85,15 @@ function sanitizeHeaders(headers: Record<string, string>): Record<string, string
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 256, maxFreeSockets: 64, timeout: TIMEOUT_MS });
 const httpAgent  = new http.Agent ({ keepAlive: true, maxSockets: 256, maxFreeSockets: 64, timeout: TIMEOUT_MS });
 
+const MAX_BODY_BYTES = 1024 * 256; // 256KB cap to prevent memory exhaustion
+
 function makeRequest(
   url: string,
   method: string,
   headers: Record<string, string>,
   redirectsLeft: number,
-): Promise<{ statusCode: number }> {
+  captureBody = false,
+): Promise<{ statusCode: number; body?: string }> {
   return new Promise((resolve, reject) => {
     const parsed    = new URL(url);
     const isHttps   = parsed.protocol === 'https:';
@@ -104,27 +111,77 @@ function makeRequest(
     };
 
     const req = transport.request(options, (res) => {
-      res.resume();
       const statusCode = res.statusCode ?? 0;
       const location   = res.headers['location'];
 
       if (statusCode >= 301 && statusCode <= 308 && location && redirectsLeft > 0) {
+        res.resume();
         const nextUrl = location.startsWith('http') ? location : `${parsed.origin}${location}`;
-        // Validate redirect target is also safe
         const nextHostname = new URL(nextUrl).hostname;
         assertSafeHost(nextHostname)
-          .then(() => makeRequest(nextUrl, method, headers, redirectsLeft - 1))
+          .then(() => makeRequest(nextUrl, method, headers, redirectsLeft - 1, captureBody))
           .then(resolve, reject);
         return;
       }
 
-      resolve({ statusCode });
+      if (!captureBody) {
+        res.resume();
+        resolve({ statusCode });
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      let bytesRead = 0;
+      res.on('data', (chunk: Buffer) => {
+        bytesRead += chunk.length;
+        if (bytesRead <= MAX_BODY_BYTES) chunks.push(chunk);
+      });
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        resolve({ statusCode, body });
+      });
+      res.on('error', reject);
     });
 
     req.on('timeout', () => { req.destroy(); reject(new Error(`Timed out after ${TIMEOUT_MS}ms`)); });
     req.on('error', reject);
     req.end();
   });
+}
+
+function evaluateBodyAssertion(
+  body: string | undefined,
+  contains?: string,
+  jsonPath?: string,
+  jsonValue?: string,
+): string | null {
+  if (!contains && !jsonPath) return null;
+
+  if (contains && body && !body.includes(contains)) {
+    return `Response body does not contain: "${contains}"`;
+  }
+
+  if (jsonPath && jsonValue && body) {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      // Minimal dot-notation JSONPath: $.field.subfield
+      const path = jsonPath.replace(/^\$\./, '').split('.');
+      let current: unknown = parsed;
+      for (const key of path) {
+        if (typeof current !== 'object' || current === null) {
+          return `JSONPath "${jsonPath}" not found in response`;
+        }
+        current = (current as Record<string, unknown>)[key];
+      }
+      if (String(current) !== jsonValue) {
+        return `JSONPath "${jsonPath}" = "${String(current)}", expected "${jsonValue}"`;
+      }
+    } catch {
+      return `Response body is not valid JSON`;
+    }
+  }
+
+  return null;
 }
 
 export class HttpChecker {
@@ -143,16 +200,28 @@ export class HttpChecker {
           statusCode    : null,
           responseTimeMs: Date.now() - startTime,
           errorMessage  : `Circuit open for ${parsed.hostname} — skipping check`,
+          failureReason : null,
         };
       }
 
       await assertSafeHost(parsed.hostname);
 
-      const { statusCode } = await makeRequest(params.url, params.httpMethod, params.requestHeaders, MAX_REDIRECTS);
+      const captureBody = !!(params.bodyContains || params.bodyJsonPath);
+      const { statusCode, body } = await makeRequest(params.url, params.httpMethod, params.requestHeaders, MAX_REDIRECTS, captureBody);
       const responseTimeMs = Date.now() - startTime;
-      const status: MonitorStatus = statusCode === params.expectedStatusCode ? 'up' : 'degraded';
+
+      let status: MonitorStatus = statusCode === params.expectedStatusCode ? 'up' : 'degraded';
+      let failureReason: string | null = null;
+
+      if (status === 'up') {
+        failureReason = evaluateBodyAssertion(body, params.bodyContains, params.bodyJsonPath, params.bodyJsonValue);
+        if (failureReason) status = 'degraded';
+      } else {
+        failureReason = `Expected HTTP ${params.expectedStatusCode}, got ${statusCode}`;
+      }
+
       globalCircuitBreaker.recordSuccess(parsed.hostname);
-      return { status, statusCode, responseTimeMs, errorMessage: null };
+      return { status, statusCode, responseTimeMs, errorMessage: null, failureReason };
     } catch (err) {
       try {
         const hostname = new URL(params.url).hostname;
@@ -165,6 +234,7 @@ export class HttpChecker {
         statusCode    : null,
         responseTimeMs: Date.now() - startTime,
         errorMessage  : err instanceof Error ? err.message : 'Unknown error',
+        failureReason : null,
       };
     }
   }

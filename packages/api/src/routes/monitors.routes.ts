@@ -16,6 +16,9 @@ const CreateMonitorSchema = z.object({
   expectedStatusCode  : z.number().int().min(100).max(599).default(200),
   checkIntervalSeconds: z.union([z.literal(30), z.literal(60), z.literal(300), z.literal(600)]).default(60),
   regionCodes         : z.array(z.string().min(1)).min(1).max(10).default(['us-east-1']),
+  bodyContains        : z.string().max(500).optional(),
+  bodyJsonPath        : z.string().max(200).optional(),
+  bodyJsonValue       : z.string().max(500).optional(),
 });
 
 const UpdateMonitorSchema = CreateMonitorSchema.partial().extend({

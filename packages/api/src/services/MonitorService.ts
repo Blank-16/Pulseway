@@ -1,4 +1,5 @@
 import { MonitorRepository, WorkspaceRepository, IncidentRepository, getPool } from '@pulseway/db';
+import { featureFlags } from './FeatureFlagService.js';
 import { StatsRepository } from '@pulseway/db';
 import { AppError } from '../errors.js';
 import { getPublishClient, getCacheClient } from '../redis.js';
@@ -21,7 +22,13 @@ export class MonitorService {
       throw AppError.planLimitExceeded(`Monitor limit (${limit}) reached for ${workspace.plan} plan`);
     }
 
-    const monitor = await this.monitorRepo.insert(workspaceId, dto);
+    // Strip body assertions if feature flag is disabled for this workspace
+    const bodyAssertionsEnabled = await featureFlags.isEnabled('body_assertions', workspaceId);
+    const sanitizedDto = bodyAssertionsEnabled
+      ? dto
+      : { ...dto, bodyContains: undefined, bodyJsonPath: undefined, bodyJsonValue: undefined };
+
+    const monitor = await this.monitorRepo.insert(workspaceId, sanitizedDto);
     await getPublishClient().publish(
       'config-change',
       JSON.stringify({ action: 'created', monitorId: monitor.id }),
