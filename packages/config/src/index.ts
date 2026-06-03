@@ -21,6 +21,8 @@ const EnvSchema = z.object({
   ALERT_JOBS_QUEUE_URL                   : z.string().url(),
   CHECK_JOBS_DLQ_URL                     : z.string().url().optional(),
   JWT_SECRET                             : z.string().min(32),
+  // Previous secret — set during rotation, remove after all old tokens expire (15min)
+  JWT_SECRET_PREVIOUS                    : z.string().min(32).optional(),
   JWT_EXPIRY_SECONDS                     : z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_EXPIRY_DAYS              : z.coerce.number().int().min(1).max(90).default(7),
   STRIPE_SECRET_KEY                      : z.string().startsWith('sk_'),
@@ -33,7 +35,28 @@ const EnvSchema = z.object({
   WORKER_SQS_POLL_INTERVAL_MS            : z.coerce.number().int().min(100).default(1_000),
   WORKER_MAX_CONCURRENCY                 : z.coerce.number().int().min(1).max(100).default(10),
   INCIDENT_CONSECUTIVE_FAILURES_REQUIRED : z.coerce.number().int().min(1).max(10).default(3),
+  // Workers only process jobs whose region matches this value.
+  // Set to the AWS region this worker is deployed in.
+  WORKER_REGION                          : z.string().default('us-east-1'),
+  // Cloud provider selection. Set to 'azure' when deploying on Azure.
+  // Switches queue client from SQS to Azure Service Bus.
+  CLOUD                                  : z.enum(['aws', 'azure']).default('aws'),
+  // Azure Service Bus connection strings (used when CLOUD=azure)
+  AZURE_SERVICEBUS_CHECK_CONN_STR        : z.string().optional(),
+  AZURE_SERVICEBUS_ALERT_CONN_STR        : z.string().optional(),
+  // Azure Key Vault URI for secret resolution at runtime
+  AZURE_KEYVAULT_URI                     : z.string().url().optional(),
+  // Application Insights connection string for OTEL on Azure
+  APPLICATIONINSIGHTS_CONNECTION_STRING  : z.string().optional(),
+  // Azure Communication Services email (used when CLOUD=azure, optional if SENDGRID_API_KEY set)
+  AZURE_EMAIL_CONNECTION_STR             : z.string().optional(),
+  AZURE_EMAIL_ENDPOINT                   : z.string().url().optional(),
+  // SendGrid API key — fallback email provider on Azure when ACS not configured
+  SENDGRID_API_KEY                       : z.string().optional(),
   LOG_LEVEL                              : z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+  DB_POOL_MAX                            : z.coerce.number().int().min(1).max(100).default(10),
+  // Set to 'true' when DATABASE_URL points at PgBouncer — disables prepared statements
+  PGBOUNCER                              : z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
   OTEL_EXPORTER_OTLP_ENDPOINT            : z.string().url().optional(),
   OTEL_SERVICE_NAME                      : z.string().optional(),
   // Optional — if set, /metrics requires this token as Bearer authorization.
@@ -105,3 +128,7 @@ export function getConfig(): AppConfig {
   if (!cachedConfig) throw new Error('Config not loaded. Call loadConfig() first.');
   return cachedConfig;
 }
+
+export { injectTraceContext, extractTraceContext } from './telemetry.js';
+
+export { ServiceBusSender } from './servicebus.js';
