@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { PasswordResetRepository, UserRepository } from '@pulseway/db';
+import { PasswordResetRepository, UserRepository, RefreshTokenRepository, getPool } from '@pulseway/db';
 import { sendEmail } from '../channels/email.js';
 import { getConfig } from '@pulseway/config';
 import { AppError, ErrorCode } from '../errors.js';
@@ -7,13 +7,14 @@ import { AppError, ErrorCode } from '../errors.js';
 const BCRYPT_ROUNDS = 12;
 
 export class PasswordResetService {
-  private readonly repo     = new PasswordResetRepository();
-  private readonly userRepo = new UserRepository();
+  private readonly repo            = new PasswordResetRepository();
+  private readonly userRepo        = new UserRepository();
+  private readonly refreshTokenRepo = new RefreshTokenRepository();
 
   async requestReset(email: string): Promise<void> {
     const config = getConfig();
     const user   = await this.userRepo.findByEmail(email.toLowerCase());
-    // Always return success — don't leak whether email is registered
+    // Always return success — don't reveal whether the email is registered
     if (!user) return;
 
     const token = await this.repo.create(user.id);
@@ -40,14 +41,14 @@ export class PasswordResetService {
     }
 
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    const pool = (await import('@pulseway/db')).getPool();
+    const pool = getPool();
+
     await pool.query(
       'UPDATE users SET password_hash = $1 WHERE id = $2',
       [hash, result.userId],
     );
 
-    // Revoke all active refresh tokens — force re-login on all devices
-    const { RefreshTokenRepository } = await import('@pulseway/db');
-    await new RefreshTokenRepository().revokeAllForUser(result.userId);
+    // Revoke all active refresh tokens — forces re-login on all devices
+    await this.refreshTokenRepo.revokeAllForUser(result.userId);
   }
 }

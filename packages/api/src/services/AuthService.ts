@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { signToken } from '../jwt.js';
 import type { Response } from 'express';
 import { getConfig } from '@pulseway/config';
 import { UserRepository, WorkspaceRepository, RefreshTokenRepository, getPool } from '@pulseway/db';
@@ -12,15 +12,6 @@ interface AuthTokens {
   refreshToken : string;
   user         : User;
   workspace    : Workspace;
-}
-
-interface JwtPayload {
-  sub         : string;
-  email       : string;
-  workspaceId : string;
-  role        : string;
-  iat?        : number;
-  exp?        : number;
 }
 
 const BCRYPT_ROUNDS       = 12;
@@ -199,14 +190,7 @@ export class AuthService {
     res.clearCookie(COOKIE_NAME, { path: '/api/auth' });
   }
 
-  private async signJwt(userId: string, email: string, workspaceId: string, role: string): Promise<string> {
-    const config  = getConfig();
-    const payload: JwtPayload = { sub: userId, email, workspaceId, role };
-    return new Promise<string>((resolve, reject) => {
-      jwt.sign(payload, config.JWT_SECRET, { expiresIn: '15m' }, (err, token) => {
-        if (err || !token) reject(err ?? new Error('JWT sign failed'));
-        else resolve(token);
-      });
-    });
+  private signJwt(userId: string, email: string, workspaceId: string, role: string): Promise<string> {
+    return signToken({ sub: userId, email, workspaceId, role });
   }
 }

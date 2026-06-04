@@ -1,6 +1,5 @@
-import { promisify } from 'node:util';
 import type { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verifyToken } from '../jwt.js';
 import { getConfig } from '@pulseway/config';
 import { ApiKeyRepository } from '@pulseway/db';
 import { ErrorCode } from '../errors.js';
@@ -8,19 +7,6 @@ import { ErrorCode } from '../errors.js';
 export interface AuthenticatedRequest extends Request {
   user: { id: string; email: string; workspaceId?: string; role?: string; authMethod: 'jwt' | 'api_key' };
 }
-
-interface JwtPayload {
-  sub  : string;
-  email: string;
-  workspaceId: string;
-  role : string;
-  iat  : number;
-  exp  : number;
-}
-
-const jwtVerifyAsync = promisify<string, string, jwt.VerifyOptions, JwtPayload>(
-  jwt.verify as (token: string, secret: string, options: jwt.VerifyOptions, cb: jwt.VerifyCallback<JwtPayload>) => void,
-);
 
 const apiKeyRepo = new ApiKeyRepository();
 
@@ -65,9 +51,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
 
   try {
     const token   = header.slice(7);
-    const payload = await jwtVerifyAsync(token, getConfig().JWT_SECRET, {
-      algorithms: ['HS256'], // Fix 7: pin algorithm to prevent algorithm confusion attacks
-    });
+    const payload = await verifyToken(token);
     (req as AuthenticatedRequest).user = {
       id         : payload.sub,
       email      : payload.email,
