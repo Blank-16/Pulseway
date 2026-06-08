@@ -7,8 +7,11 @@ export interface SqsCheckJob {
   httpMethod: HttpMethod;
   requestHeaders: Record<string, string>;
   expectedStatusCode: number;
-  region: string;
-  enqueuedAt: string;
+  region            : string;
+  enqueuedAt        : string;
+  bodyContains?     : string;
+  bodyJsonPath?     : string;
+  bodyJsonValue?    : string;
 }
 
 export interface SqsAlertJob {
