@@ -64,6 +64,35 @@ clean:
 	find packages apps -name "tsconfig.tsbuildinfo" -delete
 	find packages apps -name ".next" -type d ! -path "*/node_modules/*" -exec rm -rf {} + 2>/dev/null; true
 
+# Azure infrastructure
+azure-bootstrap:
+	bash scripts/bootstrap-azure.sh $(ENV) $(LOCATION)
+
+azure-init:
+	cd infrastructure/azure && terraform init
+
+azure-plan:
+	cd infrastructure/azure && terraform plan -var-file=environments/$(ENV).tfvars -var=custom_domain=$(DOMAIN) -var=alert_email=$(ALERT_EMAIL)
+
+azure-apply:
+	cd infrastructure/azure && terraform apply -var-file=environments/$(ENV).tfvars -var=custom_domain=$(DOMAIN) -var=alert_email=$(ALERT_EMAIL)
+
+azure-destroy:
+	cd infrastructure/azure && terraform destroy -var-file=environments/$(ENV).tfvars -var=custom_domain=$(DOMAIN) -var=alert_email=$(ALERT_EMAIL)
+
+azure-migrate:
+	az containerapp job start --name "pulseway-$(ENV)-migrate" --resource-group "pulseway-$(ENV)"
+
+azure-logs-api:
+	az containerapp logs show --name "pulseway-$(ENV)-api" --resource-group "pulseway-$(ENV)" --follow
+
+azure-logs-worker:
+	az containerapp logs show --name "pulseway-$(ENV)-worker" --resource-group "pulseway-$(ENV)" --follow
+
+azure-secrets:
+	KV_NAME=pulseway-$(ENV)-kv && 	az keyvault secret set --vault-name "$$KV_NAME" --name "jwt-secret" --value "$$(openssl rand -hex 32)" && 	echo "Set jwt-secret. Set stripe keys manually."
+
+
 help:
 	@echo ""
 	@echo "Usage: make <target>"
@@ -90,5 +119,15 @@ help:
 	@echo "  partitions          Create next 3 months of check_results partitions"
 	@echo ""
 	@echo "  clean               Remove all dist/ and tsbuildinfo files"
+	@echo ""
+	@echo "Azure"
+	@echo "  azure-bootstrap     Bootstrap tfstate storage and OIDC service principal"
+	@echo "  azure-init          terraform init for Azure"
+	@echo "  azure-plan          terraform plan (ENV=staging|prod DOMAIN=x.com ALERT_EMAIL=y)"
+	@echo "  azure-apply         terraform apply"
+	@echo "  azure-migrate       Run DB migrations via Container App Job"
+	@echo "  azure-logs-api      Tail API Container App logs"
+	@echo "  azure-logs-worker   Tail worker Container App logs"
+	@echo "  azure-secrets       Set JWT secret in Key Vault"
 	@echo "  lint                Run ESLint across all packages"
 	@echo ""

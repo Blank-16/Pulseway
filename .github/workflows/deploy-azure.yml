@@ -1,0 +1,200 @@
+name: Deploy (Azure)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options: [staging, prod]
+
+concurrency:
+  group: deploy-azure-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AZURE_LOCATION: eastus
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: pulseway
+          POSTGRES_PASSWORD: pulseway_test
+          POSTGRES_DB: pulseway_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulseway"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6380:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pulseway:pulseway_test@localhost:5433/pulseway_test
+      REDIS_URL: redis://localhost:6380
+      JWT_SECRET: test-jwt-secret-for-ci-min-32-chars-long
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --build
+      - run: pnpm exec vitest run
+
+  build:
+    name: Build & Push to ACR
+    needs: test
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      acr_server: ${{ steps.acr.outputs.loginServer }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC — no stored credentials)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get ACR login server
+        id: acr
+        run: |
+          SERVER=$(az acr show --name pulseway${{ github.event.inputs.environment || 'staging' }}acr --query loginServer -o tsv)
+          echo "loginServer=$SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: Set image tag
+        id: meta
+        run: echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ACR
+        run: az acr login --name pulseway${{ github.event.inputs.environment || 'staging' }}acr
+
+      - name: Build and push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/api/Dockerfile
+          push: true
+          tags: ${{ steps.acr.outputs.loginServer }}/pulseway-api:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/worker/Dockerfile
+          push: true
+          tags: ${{ steps.acr.outputs.loginServer }}/pulseway-worker:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Scheduler
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/scheduler/Dockerfile
+          push: true
+          tags: ${{ steps.acr.outputs.loginServer }}/pulseway-scheduler:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          tags: ${{ steps.acr.outputs.loginServer }}/pulseway-web:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'staging' }}
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run DB migrations via one-shot Container App Job
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          RG=pulseway-${ENV}
+          ACR=${{ needs.build.outputs.acr_server }}
+          TAG=${{ needs.build.outputs.image_tag }}
+
+          az containerapp job create             --name "pulseway-${ENV}-migrate"             --resource-group "$RG"             --environment "pulseway-${ENV}-env"             --trigger-type Manual             --replica-timeout 300             --image "${ACR}/pulseway-api:${TAG}"             --cpu 0.25 --memory 0.5Gi             --env-vars "NODE_ENV=production"             --registry-server "$ACR"             --mi-user-assigned "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourcegroups/${RG}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/pulseway-${ENV}-aca"             --command "node" "packages/db/dist/migrate.js"             --output none 2>/dev/null || true
+
+          az containerapp job start             --name "pulseway-${ENV}-migrate"             --resource-group "$RG"
+
+          # Wait for migration job to complete
+          for i in $(seq 1 30); do
+            STATUS=$(az containerapp job execution list               --name "pulseway-${ENV}-migrate"               --resource-group "$RG"               --query "[0].properties.status" -o tsv 2>/dev/null)
+            echo "Migration status: $STATUS"
+            [ "$STATUS" = "Succeeded" ] && break
+            [ "$STATUS" = "Failed" ] && exit 1
+            sleep 10
+          done
+
+      - name: Update API Container App revision
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          az containerapp update             --name "pulseway-${ENV}-api"             --resource-group "pulseway-${ENV}"             --image "${{ needs.build.outputs.acr_server }}/pulseway-api:${{ needs.build.outputs.image_tag }}"
+
+      - name: Update Worker Container App revision
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          az containerapp update             --name "pulseway-${ENV}-worker"             --resource-group "pulseway-${ENV}"             --image "${{ needs.build.outputs.acr_server }}/pulseway-worker:${{ needs.build.outputs.image_tag }}"
+
+      - name: Update Scheduler Container App revision
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          az containerapp update             --name "pulseway-${ENV}-scheduler"             --resource-group "pulseway-${ENV}"             --image "${{ needs.build.outputs.acr_server }}/pulseway-scheduler:${{ needs.build.outputs.image_tag }}"
+
+      - name: Update Web Container App revision
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          az containerapp update             --name "pulseway-${ENV}-web"             --resource-group "pulseway-${ENV}"             --image "${{ needs.build.outputs.acr_server }}/pulseway-web:${{ needs.build.outputs.image_tag }}"
+
+      - name: Smoke test
+        run: |
+          ENV=${{ github.event.inputs.environment || 'staging' }}
+          sleep 20
+          API_URL=$(az containerapp show             --name "pulseway-${ENV}-api"             --resource-group "pulseway-${ENV}"             --query "properties.latestRevisionFqdn" -o tsv)
+          curl -sf "https://${API_URL}/health/ready" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('status')=='ready' else 1)"
+          echo "Smoke test passed"
