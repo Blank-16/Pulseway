@@ -1,0 +1,5 @@
+environment        = "prod"
+location           = "eastus"
+postgres_sku       = "GP_Standard_D4s_v3"
+redis_sku          = "Premium"
+vnet_address_space = "10.2.0.0/16"

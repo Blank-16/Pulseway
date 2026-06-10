@@ -1,0 +1,5 @@
+environment        = "staging"
+location           = "eastus"
+postgres_sku       = "B_Standard_B2ms"
+redis_sku          = "Basic"
+vnet_address_space = "10.1.0.0/16"
