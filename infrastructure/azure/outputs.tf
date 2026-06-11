@@ -1,0 +1,9 @@
+output "acr_login_server"       { value = module.acr.login_server }
+output "api_fqdn"               { value = module.aca.api_fqdn }
+output "web_fqdn"               { value = module.aca.web_fqdn }
+output "cdn_endpoint"           { value = module.cdn.endpoint_hostname }
+output "keyvault_name"          { value = module.keyvault.keyvault_name }
+output "postgres_fqdn"          { value = module.postgres.fqdn }
+output "redis_hostname"         { value = module.redis.hostname }
+output "servicebus_namespace"   { value = module.servicebus.namespace_name }
+output "resource_group"         { value = azurerm_resource_group.main.name }
