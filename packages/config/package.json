@@ -1,25 +1,30 @@
 {
-  "name":    "@pulseway/config",
+  "name": "@pulseway/config",
   "version": "1.0.0",
-  "main":    "./dist/index.js",
-  "types":   "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types":  "./dist/index.d.ts"
+      "types": "./dist/index.d.ts"
     }
   },
   "scripts": {
-    "build":     "tsc --build",
-    "clean":     "rm -rf dist tsconfig.tsbuildinfo",
+    "build": "tsc --build",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "typecheck": "tsc --build --dry"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1041.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@azure/service-bus": "^7.9.5",
+    "@opentelemetry/api": "^1.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.18",
-    "typescript":  "^5.8.3"
+    "typescript": "^5.8.3"
+  },
+  "optionalDependencies": {
+    "@azure/communication-email": "^1.0.0"
   }
 }
