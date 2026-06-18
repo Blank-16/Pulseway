@@ -7,8 +7,8 @@ import {
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs';
 import type { Monitor, SqsCheckJob } from '@pulseway/types';
+import { ServiceBusSender, injectTraceContext } from '@pulseway/config';
 import { recordSchedulerTick } from './metrics.js';
-import { injectTraceContext } from '../worker/src/telemetry.js';
 
 const LOCK_KEY    = 'scheduler:lock';
 const LOCK_TTL_MS = 15_000;
@@ -100,6 +100,11 @@ export class SchedulerLoop {
 
   private async enqueueChecks(monitor: Monitor): Promise<void> {
     const config = getConfig();
+    if (config.CLOUD === 'azure') {
+      await this.enqueueChecksAzure(monitor);
+      return;
+    }
+    const config = getConfig();
     const entries: SendMessageBatchRequestEntry[] = monitor.regionCodes.map((region) => {
       const job: SqsCheckJob = {
         monitorId          : monitor.id,
@@ -110,6 +115,9 @@ export class SchedulerLoop {
         expectedStatusCode : monitor.expectedStatusCode,
         region,
         enqueuedAt         : new Date().toISOString(),
+        bodyContains       : monitor.bodyContains ?? undefined,
+        bodyJsonPath       : monitor.bodyJsonPath ?? undefined,
+        bodyJsonValue      : monitor.bodyJsonValue ?? undefined,
       };
       return {
         Id                     : `${monitor.id.replace(/-/g, '')}-${region.replace(/-/g, '')}`,
