@@ -15,6 +15,7 @@ import {
 import { sendEmail } from './channels/email.js';
 import { sendSlack } from './channels/slack.js';
 import { sendDiscord } from './channels/discord.js';
+import { sendWebhook } from './channels/webhook.js';
 import { logger } from './logger.js';
 import type { SqsAlertJob, NotificationChannel } from '@pulseway/types';
 
@@ -148,6 +149,22 @@ export class AlertWorker {
         case 'discord':
           await sendDiscord({ webhookUrl: channel.config['webhookUrl'] ?? '', content: subject });
           break;
+        case 'webhook': {
+          const result = await sendWebhook({
+            webhookUrl : channel.config['url'] ?? '',
+            secret     : channel.config['secret'],
+            event      : job.eventType === 'opened' ? 'incident.opened' : 'incident.resolved',
+            monitorName: monitor.name,
+            monitorUrl : monitor.url,
+            incidentId : job.incidentId,
+            startedAt  : incident.startedAt,
+            durationSec: incident.durationSeconds ?? undefined,
+          });
+          if (result.status >= 400) {
+            throw new Error(`Webhook returned HTTP ${result.status}`);
+          }
+          break;
+        }
       }
       channelLog.info('Channel notified');
       await this.alertLogRepo.insert({ incidentId: job.incidentId, channelType: channel.channelType, status: 'sent' });

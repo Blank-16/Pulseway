@@ -102,6 +102,19 @@ export class CheckWorker {
     const log = jobLogger(message.MessageId ?? 'unknown', job.monitorId);
 
     try {
+      // Region filter: each worker only processes jobs for its own region.
+      // Jobs for other regions are returned to the queue without processing.
+      if (job.region !== getConfig().WORKER_REGION) {
+        log.debug({ jobRegion: job.region, workerRegion: getConfig().WORKER_REGION }, 'Skipping job — wrong region');
+        // Return to queue so the correct regional worker picks it up
+        await this.sqsClient.send(new ChangeMessageVisibilityCommand({
+          QueueUrl         : queueUrl,
+          ReceiptHandle    : message.ReceiptHandle!,
+          VisibilityTimeout: 0,
+        })).catch(() => null);
+        return;
+      }
+
       const traceCtx = extractTraceContext(
         (message.MessageAttributes ?? {}) as Record<string, { StringValue?: string }>,
       );
@@ -126,6 +139,9 @@ export class CheckWorker {
       httpMethod        : job.httpMethod,
       requestHeaders    : job.requestHeaders,
       expectedStatusCode: job.expectedStatusCode,
+      bodyContains      : job.bodyContains,
+      bodyJsonPath      : job.bodyJsonPath,
+      bodyJsonValue     : job.bodyJsonValue,
     });
 
     log.info({
