@@ -74,10 +74,11 @@ export class RefreshTokenRepository {
       const newHash      = this.hashToken(newToken);
       const newExpiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
 
+      // Inherit session_id so revokeChain can invalidate the entire device session
       const { rows: newRows } = await client.query<{ id: string }>(
-        `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-         VALUES ($1, $2, $3) RETURNING id`,
-        [existing.user_id, newHash, newExpiresAt],
+        `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, session_id)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [existing.user_id, newHash, newExpiresAt, existing.session_id],
       );
       const newId = newRows[0]!.id;
 

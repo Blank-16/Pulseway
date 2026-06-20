@@ -1,4 +1,4 @@
-export { getPool, closePool } from './client.js';
+export { getPool, closePool, checkPoolHealth } from './client.js';
 export { UserRepository } from './repositories/UserRepository.js';
 export { WorkspaceRepository } from './repositories/WorkspaceRepository.js';
 export { MonitorRepository } from './repositories/MonitorRepository.js';

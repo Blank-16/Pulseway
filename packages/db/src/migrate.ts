@@ -2,8 +2,15 @@ import { readdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import pino from 'pino';
 import { getPool } from './client.js';
 import { loadConfig } from '@pulseway/config';
+
+const logger = pino({
+  level    : 'info',
+  base     : { service: 'migrate' },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -33,31 +40,38 @@ async function runMigrations(): Promise<void> {
   await ensureMigrationsTable();
 
   const applied = await getApplied();
-  const files   = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort();
+  const files   = (await readdir(MIGRATIONS_DIR))
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
 
-  // Verify checksums of already-applied migrations
+  // Verify checksums of previously-applied migrations — abort on tampering
   for (const file of files) {
     const recorded = applied.get(file);
-    if (!recorded) continue; // pending — will be applied below
+    if (!recorded) continue;
     const sql      = await readFile(join(MIGRATIONS_DIR, file), 'utf-8');
     const computed = checksum(sql);
     if (recorded !== computed) {
-      throw new Error(
-        `Checksum mismatch for applied migration ${file}.\n` +
-        `Recorded: ${recorded}\nComputed: ${computed}\n` +
-        `Do NOT modify migration files after they have been applied.`,
+      logger.fatal(
+        { file, recorded, computed },
+        'Checksum mismatch — migration file was modified after being applied. Aborting.',
       );
+      process.exit(1);
     }
   }
 
   const pending = files.filter((f) => !applied.has(f));
-  if (pending.length === 0) { console.log('No pending migrations.'); return; }
+  if (pending.length === 0) {
+    logger.info('No pending migrations');
+    return;
+  }
 
+  logger.info({ count: pending.length }, 'Running migrations');
   const pool = getPool();
+
   for (const file of pending) {
     const sql  = await readFile(join(MIGRATIONS_DIR, file), 'utf-8');
     const hash = checksum(sql);
-    console.log(`Applying migration: ${file} (checksum: ${hash})`);
+    logger.info({ file, checksum: hash }, 'Applying migration');
 
     const client = await pool.connect();
     try {
@@ -68,17 +82,22 @@ async function runMigrations(): Promise<void> {
         [file, hash],
       );
       await client.query('COMMIT');
-      console.log(`  Applied: ${file}`);
+      logger.info({ file }, 'Migration applied');
     } catch (err) {
       await client.query('ROLLBACK');
-      console.error(`  Failed: ${file}`, err);
+      logger.error({ err, file }, 'Migration failed — rolled back');
       throw err;
     } finally {
       client.release();
     }
   }
+
+  logger.info({ applied: pending.length }, 'All migrations complete');
 }
 
 runMigrations()
   .then(() => process.exit(0))
-  .catch((err) => { console.error(err); process.exit(1); });
+  .catch((err) => {
+    logger.fatal({ err }, 'Migration runner failed');
+    process.exit(1);
+  });
