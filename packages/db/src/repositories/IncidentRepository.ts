@@ -143,7 +143,16 @@ export class IncidentRepository {
     const [dataRes, countRes] = await Promise.all([
       cursor
         ? (() => {
-            const { startedAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as { startedAt: string; id: string };
+            let startedAt: string;
+            let id       : string;
+            try {
+              const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as { startedAt: string; id: string };
+              startedAt = decoded.startedAt;
+              id        = decoded.id;
+              if (!startedAt || !id) throw new Error('missing fields');
+            } catch {
+              throw Object.assign(new Error('Invalid cursor format'), { statusCode: 400 });
+            }
             return pool.query<IncidentRow>(
               `SELECT i.* FROM incidents i
                JOIN monitors m ON m.id = i.monitor_id

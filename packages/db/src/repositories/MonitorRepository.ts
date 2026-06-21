@@ -89,7 +89,15 @@ export class MonitorRepository {
           `SELECT * FROM monitors
            WHERE workspace_id = $1 AND deleted_at IS NULL AND (created_at, id) > ($2::timestamptz, $3::uuid)
            ORDER BY created_at, id LIMIT $4`,
-          [workspaceId, ...JSON.parse(Buffer.from(cursor, 'base64url').toString()) as [string, string], safe],
+          [workspaceId, ...(() => {
+        try {
+          const d = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as unknown;
+          if (!Array.isArray(d) || d.length !== 2) throw new Error('bad shape');
+          return d as [string, string];
+        } catch {
+          throw Object.assign(new Error('Invalid cursor format'), { statusCode: 400 });
+        }
+      })(), safe],
         )
       : await pool.query<MonitorRow>(
           `SELECT * FROM monitors

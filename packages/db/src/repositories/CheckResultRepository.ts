@@ -38,11 +38,22 @@ export class CheckResultRepository {
   async findByMonitorCursor(monitorId: string, limit = 50, cursor?: string): Promise<CursorPage<CheckResult>> {
     const pool = getPool();
     const safeLimit = Math.min(limit, 500);
-    const { rows } = cursor
+
+    // Validate cursor is a parseable ISO 8601 timestamp to surface bad inputs as 400
+    // rather than letting pg throw a 'invalid input syntax for type timestamp' 500
+    let cursorDate: Date | undefined;
+    if (cursor) {
+      cursorDate = new Date(cursor);
+      if (isNaN(cursorDate.getTime())) {
+        throw Object.assign(new Error('Invalid cursor: not a valid ISO 8601 timestamp'), { statusCode: 400 });
+      }
+    }
+
+    const { rows } = cursorDate
       ? await pool.query<CheckResultRow>(
           `SELECT * FROM check_results WHERE monitor_id = $1 AND checked_at < $2
            ORDER BY checked_at DESC LIMIT $3`,
-          [monitorId, cursor, safeLimit],
+          [monitorId, cursorDate.toISOString(), safeLimit],
         )
       : await pool.query<CheckResultRow>(
           `SELECT * FROM check_results WHERE monitor_id = $1
@@ -50,9 +61,12 @@ export class CheckResultRepository {
           [monitorId, safeLimit],
         );
 
-    const items = rows.map(toCheckResult);
+    const items   = rows.map(toCheckResult);
     const lastRow = rows[rows.length - 1];
-    return { items, nextCursor: rows.length === safeLimit && lastRow ? lastRow.checked_at.toISOString() : null };
+    return {
+      items,
+      nextCursor: rows.length === safeLimit && lastRow ? lastRow.checked_at.toISOString() : null,
+    };
   }
 
   async findLatestByMonitor(monitorId: string, limit = 50): Promise<CheckResult[]> {
