@@ -1,3 +1,4 @@
+import { logger } from './logger.js';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { Resource } from '@opentelemetry/resources';
@@ -36,5 +37,5 @@ if (isEnabled) {
 
   sdk.start();
 
-  process.on('SIGTERM', () => sdk.shutdown().catch(console.error));
+  process.on('SIGTERM', () => sdk.shutdown().catch((err) => logger.error({ err }, 'OTEL SDK shutdown failed')));
 }
