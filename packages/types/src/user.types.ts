@@ -27,7 +27,7 @@ export interface WorkspaceMember {
   user?: Pick<User, 'id' | 'email' | 'name'>;
 }
 
-export type NotificationChannelType = 'email' | 'slack' | 'discord';
+export type NotificationChannelType = 'email' | 'slack' | 'discord' | 'webhook';
 
 export interface NotificationChannel {
   id: string;

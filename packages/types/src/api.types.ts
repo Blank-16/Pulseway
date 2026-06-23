@@ -10,10 +10,27 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+/**
+ * Cursor-based paginated response.
+ * Pass nextCursor as `cursor` query param in the next request.
+ * nextCursor is null when there are no more pages.
+ */
+export interface CursorPaginatedResponse<T> {
+  data      : T[];
+  total     : number;
+  nextCursor: string | null;
+}
+
+/**
+ * @deprecated Use CursorPaginatedResponse — the API uses keyset pagination.
+ * Retained for backwards compatibility with any existing consumers.
+ */
 export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
+  data    : T[];
+  total   : number;
+  /** @deprecated */
+  page    : number;
+  /** @deprecated */
   pageSize: number;
 }
 
