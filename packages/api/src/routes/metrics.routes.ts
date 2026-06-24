@@ -14,41 +14,40 @@ export function metricsRoutes(sseManager: SSEManager): Router {
   router.get('/', async (_req: Request, res: Response) => {
     setGauge(Metrics.SSE_CONNECTIONS, 'Active SSE connections', sseManager.totalConnections);
 
-    let workerSection = '';
+    // Fetch worker counters + scheduler timestamp in a single connection
+    let workerSection    = '';
+    let schedulerSection = '';
+
     try {
       const redis = getCacheClient();
-      const [counts, timestamps] = await Promise.all([
+
+      // Batch all Redis reads in one round-trip
+      const [counts, timestamps, lastTick] = await Promise.all([
         redis.hgetall(COUNTER_HASH),
         redis.hgetall(TS_HASH),
+        redis.get('metrics:scheduler:last_tick_at'),
       ]);
+
       const now = Math.floor(Date.now() / 1000);
 
-      for (const [field, value] of Object.entries(counts)) {
-        const n         = parseInt(value, 10);
+      for (const [field, value] of Object.entries(counts ?? {})) {
+        const n = parseInt(value, 10);
         if (isNaN(n)) continue;
-        const updatedAt  = parseInt(timestamps[field] ?? '0', 10);
+        const updatedAt  = parseInt(timestamps?.[field] ?? '0', 10);
         const isStale    = now - updatedAt > STALE_AFTER;
         const metricName = `pulseway_worker_${field}_total`;
         workerSection   += `# HELP ${metricName} Worker ${field} counter (aggregated across instances)\n`;
         workerSection   += `# TYPE ${metricName} counter\n`;
-        // Stale counters are exported with a stale label so alerting rules can detect dead workers
-        workerSection   += `${metricName}{stale="${isStale}"} ${n}\n`;
+        workerSection   += `${metricName}{stale="${String(isStale)}"} ${n}\n`;
       }
-    } catch {
-      // Non-fatal — scraper will see empty worker section
-    }
 
-    // Scheduler last tick
-    let schedulerSection = '';
-    try {
-      const lastTick = await redis.get('metrics:scheduler:last_tick_at');
       if (lastTick) {
         schedulerSection  = '# HELP pulseway_scheduler_last_tick_timestamp Unix timestamp of last scheduler tick\n';
         schedulerSection += '# TYPE pulseway_scheduler_last_tick_timestamp gauge\n';
         schedulerSection += `pulseway_scheduler_last_tick_timestamp ${lastTick}\n`;
       }
     } catch {
-      // Non-fatal
+      // Redis unavailable — return what we have from in-process Prometheus registry
     }
 
     res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');

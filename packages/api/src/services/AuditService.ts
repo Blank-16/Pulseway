@@ -1,6 +1,7 @@
 import { getPool } from '@pulseway/db';
 import type { Request } from 'express';
 import type { AuthenticatedRequest } from '../middleware/authenticate.js';
+import { logger } from '../logger.js';
 
 export type AuditAction =
   | 'monitor.create' | 'monitor.update' | 'monitor.delete'
@@ -20,13 +21,13 @@ export interface AuditParams {
 }
 
 export class AuditService {
-  async log(params: AuditParams): Promise<void> {
+  log(params: AuditParams): void {
     const authReq = params.req as AuthenticatedRequest;
     const pool    = getPool();
     const ip      = params.req.ip ?? null;
-    const ua      = params.req.headers['user-agent'] ?? null;
+    const ua      = (params.req.headers['user-agent'] ?? null) as string | null;
 
-    // Fire-and-forget — audit logging must never block a response
+    // Fire-and-forget — audit logging must never block the response
     pool.query(
       `INSERT INTO audit_events
          (workspace_id, actor_id, auth_method, action, resource_type, resource_id, diff, ip, user_agent)
@@ -38,13 +39,21 @@ export class AuditService {
         params.action,
         params.resourceType,
         params.resourceId ?? null,
-        params.diff ? JSON.stringify(params.diff) : null,
+        params.diff !== undefined ? JSON.stringify(params.diff) : null,
         ip,
         ua,
       ],
-    ).catch((err) => {
-      // Non-fatal — never throw from audit logging
-      console.error('Audit log insert failed:', err);
+    ).catch((err: unknown) => {
+      // Structured log — never throw; audit failure must not affect the API response
+      logger.error(
+        {
+          err,
+          action     : params.action,
+          workspaceId: params.workspaceId,
+          resourceId : params.resourceId,
+        },
+        'Audit log insert failed',
+      );
     });
   }
 }

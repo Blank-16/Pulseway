@@ -5,6 +5,7 @@ import { getConfig } from '@pulseway/config';
 import { UserRepository, WorkspaceRepository, RefreshTokenRepository, getPool } from '@pulseway/db';
 import { EmailVerificationService } from './EmailVerificationService.js';
 import { AppError, ErrorCode } from '../errors.js';
+import { logger } from '../logger.js';
 import type { User, Workspace } from '@pulseway/types';
 
 interface AuthTokens {
@@ -96,7 +97,7 @@ export class AuthService {
         // Fire-and-forget — don't fail registration if SES is down
         this.emailVerification
           .sendVerificationEmail(user.id, user.email, user.name)
-          .catch((err) => console.error('Failed to send verification email:', err));
+          .catch((err: unknown) => logger.error({ err, userId: user.id }, 'Failed to send verification email'));
 
         return { accessToken, refreshToken, user, workspace };
       } catch (err) {

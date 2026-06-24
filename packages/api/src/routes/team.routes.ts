@@ -12,7 +12,7 @@ import type { MemberRole, NotificationChannelType } from '@pulseway/types';
 const InviteSchema = z.object({ email: z.string().email(), role: z.enum(['admin', 'viewer']) });
 const UpdateRoleSchema = z.object({ role: z.enum(['admin', 'viewer']) });
 const ChannelSchema = z.object({
-  channelType: z.enum(['email', 'slack', 'discord']),
+  channelType: z.enum(['email', 'slack', 'discord', 'webhook']),
   config: z.record(z.string()),
   isActive: z.boolean().default(true),
 });
