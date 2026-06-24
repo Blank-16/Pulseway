@@ -1,9 +1,29 @@
+import { getPool } from '@pulseway/db';
 import { getSubscribeClient, closeAllRedisConnections } from '../redis.js';
 import type { SSEManager } from './SSEManager.js';
 import type { SSEEvent } from '@pulseway/types';
 import { logger } from '../logger.js';
 
 const CHANNELS = ['check-events', 'incident-events'] as const;
+
+// Bounded LRU-style workspace ID cache.
+// monitorId → workspaceId; capped at MAX_CACHE_SIZE entries to prevent
+// unbounded growth if the system has thousands of monitors.
+const MAX_CACHE_SIZE     = 2_000;
+const workspaceIdCache   = new Map<string, string>();
+
+function cacheGet(monitorId: string): string | undefined {
+  return workspaceIdCache.get(monitorId);
+}
+
+function cacheSet(monitorId: string, workspaceId: string): void {
+  if (workspaceIdCache.size >= MAX_CACHE_SIZE) {
+    // Evict the oldest entry (Maps preserve insertion order)
+    const firstKey = workspaceIdCache.keys().next().value;
+    if (firstKey !== undefined) workspaceIdCache.delete(firstKey);
+  }
+  workspaceIdCache.set(monitorId, workspaceId);
+}
 
 export class RedisSubscriber {
   constructor(private readonly sseManager: SSEManager) {}
@@ -18,6 +38,10 @@ export class RedisSubscriber {
       );
     });
 
+    redis.on('error', (err) =>
+      logger.error({ err }, 'RedisSubscriber connection error'),
+    );
+
     logger.info({ channels: CHANNELS }, 'RedisSubscriber connected');
   }
 
@@ -25,33 +49,48 @@ export class RedisSubscriber {
     await closeAllRedisConnections();
   }
 
-  private readonly workspaceCache = new Map<string, string>();
-
   private async handleMessage(raw: string): Promise<void> {
-    const event = JSON.parse(raw) as SSEEvent & { workspaceId?: string };
-    let workspaceId = event.workspaceId;
-
-    if (!workspaceId) {
-      const monitorId = (event.data as Record<string, unknown>)['monitorId'] as string | undefined;
-      if (monitorId) workspaceId = await this.resolveWorkspaceId(monitorId);
+    let parsed: SSEEvent & { workspaceId?: string };
+    try {
+      parsed = JSON.parse(raw) as SSEEvent & { workspaceId?: string };
+    } catch (err) {
+      logger.warn({ err, raw: raw.slice(0, 200) }, 'RedisSubscriber: malformed message — discarding');
+      return;
     }
 
-    if (!workspaceId) return;
-    this.sseManager.broadcast(workspaceId, event);
+    let workspaceId = parsed.workspaceId;
+
+    if (!workspaceId) {
+      const data      = parsed.data as Record<string, unknown> | undefined;
+      const monitorId = data?.['monitorId'] as string | undefined;
+      if (monitorId) {
+        workspaceId = await this.resolveWorkspaceId(monitorId);
+      }
+    }
+
+    if (!workspaceId) {
+      logger.debug({ eventType: parsed.type }, 'RedisSubscriber: could not resolve workspaceId — skipping broadcast');
+      return;
+    }
+
+    this.sseManager.broadcast(workspaceId, parsed);
   }
 
   private async resolveWorkspaceId(monitorId: string): Promise<string | undefined> {
-    const cached = this.workspaceCache.get(monitorId);
+    const cached = cacheGet(monitorId);
     if (cached) return cached;
 
-    const { getPool } = await import('@pulseway/db');
-    const { rows } = await getPool().query<{ workspace_id: string }>(
-      'SELECT workspace_id FROM monitors WHERE id = $1',
-      [monitorId],
-    );
-
-    const workspaceId = rows[0]?.workspace_id;
-    if (workspaceId) this.workspaceCache.set(monitorId, workspaceId);
-    return workspaceId;
+    try {
+      const { rows } = await getPool().query<{ workspace_id: string }>(
+        'SELECT workspace_id FROM monitors WHERE id = $1 AND deleted_at IS NULL',
+        [monitorId],
+      );
+      const workspaceId = rows[0]?.workspace_id;
+      if (workspaceId) cacheSet(monitorId, workspaceId);
+      return workspaceId;
+    } catch (err) {
+      logger.error({ err, monitorId }, 'RedisSubscriber: DB lookup for workspace_id failed');
+      return undefined;
+    }
   }
 }
