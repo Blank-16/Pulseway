@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { getConfig } from '@pulseway/config';
+import { getConfig, ServiceBusSender, injectTraceContext } from '@pulseway/config';
 import { MonitorRepository } from '@pulseway/db';
 import {
   SQSClient,
@@ -7,13 +7,11 @@ import {
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs';
 import type { Monitor, SqsCheckJob } from '@pulseway/types';
-import { ServiceBusSender, injectTraceContext } from '@pulseway/config';
 import { recordSchedulerTick } from './metrics.js';
+import { logger } from './logger.js';
 
-const LOCK_KEY    = 'scheduler:lock';
-const LOCK_TTL_MS = 15_000;
-// Max concurrent SQS batch sends — prevents overwhelming the SQS endpoint
-// at startup when many monitors are due simultaneously
+const LOCK_KEY         = 'scheduler:lock';
+const LOCK_TTL_MS      = 15_000;
 const ENQUEUE_CONCURRENCY = 20;
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -29,7 +27,7 @@ async function pLimit<T>(
   limit: number,
   fn: (item: T) => Promise<void>,
 ): Promise<void> {
-  const queue = [...items];
+  const queue   = [...items];
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (queue.length > 0) {
       const item = queue.shift()!;
@@ -40,37 +38,40 @@ async function pLimit<T>(
 }
 
 export class SchedulerLoop {
-  private readonly sqsClient   : SQSClient;
-  private readonly redis       : Redis;
+  private readonly sqsClient  : SQSClient;
+  private readonly redis      : Redis;
   private readonly monitorRepo = new MonitorRepository();
   private running              = false;
   private readonly lockValue   = `${process.pid}-${Date.now()}`;
 
   constructor() {
-    const config     = getConfig();
-    this.sqsClient   = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
-    this.redis       = new Redis(config.REDIS_URL, {
-      lazyConnect      : false,
+    const config   = getConfig();
+    this.sqsClient = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
+    this.redis     = new Redis(config.REDIS_URL, {
+      lazyConnect         : false,
       maxRetriesPerRequest: 3,
-      connectionName   : 'pulseway-scheduler',
-      retryStrategy    : (t) => Math.min(t * 200, 10_000),
+      connectionName      : 'pulseway-scheduler',
+      retryStrategy       : (attempt) => Math.min(attempt * 200, 10_000),
     });
-    this.redis.on('error', (err) => console.error('[Scheduler Redis]', err));
+    this.redis.on('error', (err) =>
+      logger.error({ err }, '[Scheduler Redis] connection error'),
+    );
   }
 
   async start(): Promise<void> {
     this.running = true;
     const config = getConfig();
-    console.info('Scheduler started');
+    logger.info({ cloud: config.CLOUD, region: config.WORKER_REGION }, 'Scheduler started');
 
     while (this.running) {
       const startTime = Date.now();
       try {
         await this.tick();
       } catch (err) {
-        console.error('Scheduler tick error:', err);
+        logger.error({ err }, 'Scheduler tick error');
       }
-      const remaining = config.SCHEDULER_POLL_INTERVAL_MS - (Date.now() - startTime);
+      const elapsed   = Date.now() - startTime;
+      const remaining = config.SCHEDULER_POLL_INTERVAL_MS - elapsed;
       if (remaining > 0) await sleep(remaining);
     }
   }
@@ -87,12 +88,14 @@ export class SchedulerLoop {
       const dueMonitors = await this.monitorRepo.findDue();
       if (dueMonitors.length === 0) return;
 
-      console.info(`Scheduler: ${dueMonitors.length} monitors due`);
+      logger.info({ count: dueMonitors.length }, 'Monitors due for check');
 
       await this.monitorRepo.updateLastCheckedAt(dueMonitors.map((m) => m.id));
       await pLimit(dueMonitors, ENQUEUE_CONCURRENCY, (m) => this.enqueueChecks(m));
       await recordSchedulerTick(this.redis);
     } finally {
+      // Verify lock ownership before release — prevents releasing a lock we don't own
+      // (possible if the lock TTL expired and another instance acquired it)
       const current = await this.redis.get(LOCK_KEY);
       if (current === this.lockValue) await this.redis.del(LOCK_KEY);
     }
@@ -100,11 +103,20 @@ export class SchedulerLoop {
 
   private async enqueueChecks(monitor: Monitor): Promise<void> {
     const config = getConfig();
+
     if (config.CLOUD === 'azure') {
-      await this.enqueueChecksAzure(monitor);
+      await this.enqueueChecksAzure(monitor, config);
       return;
     }
-    const config = getConfig();
+
+    await this.enqueueChecksSQS(monitor, config);
+  }
+
+  private async enqueueChecksSQS(monitor: Monitor, config: ReturnType<typeof getConfig>): Promise<void> {
+    if (!config.CHECK_JOBS_QUEUE_URL) {
+      throw new Error('CHECK_JOBS_QUEUE_URL is required when CLOUD=aws');
+    }
+
     const entries: SendMessageBatchRequestEntry[] = monitor.regionCodes.map((region) => {
       const job: SqsCheckJob = {
         monitorId          : monitor.id,
@@ -115,23 +127,60 @@ export class SchedulerLoop {
         expectedStatusCode : monitor.expectedStatusCode,
         region,
         enqueuedAt         : new Date().toISOString(),
-        bodyContains       : monitor.bodyContains ?? undefined,
-        bodyJsonPath       : monitor.bodyJsonPath ?? undefined,
-        bodyJsonValue      : monitor.bodyJsonValue ?? undefined,
+        bodyContains       : monitor.bodyContains  ?? undefined,
+        bodyJsonPath       : monitor.bodyJsonPath   ?? undefined,
+        bodyJsonValue      : monitor.bodyJsonValue  ?? undefined,
       };
       return {
-        Id                     : `${monitor.id.replace(/-/g, '')}-${region.replace(/-/g, '')}`,
-        MessageBody            : JSON.stringify(job),
-        MessageGroupId         : monitor.workspaceId,
-        MessageDeduplicationId : `${monitor.id}-${region}-${Date.now()}`,
-        MessageAttributes      : injectTraceContext(),
+        Id                    : `${monitor.id.replace(/-/g, '')}-${region.replace(/-/g, '')}`,
+        MessageBody           : JSON.stringify(job),
+        MessageGroupId        : monitor.workspaceId,
+        MessageDeduplicationId: `${monitor.id}-${region}-${Date.now()}`,
+        MessageAttributes     : injectTraceContext(),
       };
     });
 
-    await Promise.all(
+    const results = await Promise.allSettled(
       chunk(entries, 10).map((batch) =>
-        this.sqsClient.send(new SendMessageBatchCommand({ QueueUrl: config.CHECK_JOBS_QUEUE_URL, Entries: batch })),
+        this.sqsClient.send(
+          new SendMessageBatchCommand({ QueueUrl: config.CHECK_JOBS_QUEUE_URL!, Entries: batch }),
+        ),
       ),
     );
+
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failed.length > 0) {
+      throw new Error(`SQS batch send: ${failed.length}/${results.length} batches failed for monitor ${monitor.id}`);
+    }
+  }
+
+  private async enqueueChecksAzure(monitor: Monitor, config: ReturnType<typeof getConfig>): Promise<void> {
+    if (!config.AZURE_SERVICEBUS_CHECK_CONN_STR) {
+      throw new Error('AZURE_SERVICEBUS_CHECK_CONN_STR is required when CLOUD=azure');
+    }
+
+    const sender = new ServiceBusSender(config.AZURE_SERVICEBUS_CHECK_CONN_STR);
+    try {
+      await Promise.all(
+        monitor.regionCodes.map((region) => {
+          const job: SqsCheckJob = {
+            monitorId          : monitor.id,
+            workspaceId        : monitor.workspaceId,
+            url                : monitor.url,
+            httpMethod         : monitor.httpMethod,
+            requestHeaders     : monitor.requestHeaders,
+            expectedStatusCode : monitor.expectedStatusCode,
+            region,
+            enqueuedAt         : new Date().toISOString(),
+            bodyContains       : monitor.bodyContains  ?? undefined,
+            bodyJsonPath       : monitor.bodyJsonPath   ?? undefined,
+            bodyJsonValue      : monitor.bodyJsonValue  ?? undefined,
+          };
+          return sender.sendMessage('check-jobs', JSON.stringify(job));
+        }),
+      );
+    } finally {
+      await sender.close();
+    }
   }
 }
