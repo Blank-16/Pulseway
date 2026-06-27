@@ -1,3 +1,6 @@
+import pino from 'pino';
+
+const redisLogger = pino({ level: 'warn', base: { service: 'worker-redis' } });
 import Redis from 'ioredis';
 import { getConfig } from '@pulseway/config';
 
@@ -11,7 +14,7 @@ function makeClient(name: string): Redis {
     connectionName: `pulseway-worker-${name}`,
     retryStrategy: (times) => Math.min(times * 200, 10_000),
   });
-  redis.on('error', (err) => console.error(`[Redis:worker-${name}]`, err));
+  redis.on('error', (err) => redisLogger.error({ err, name }, 'Redis client error'));
   return redis;
 }
 
