@@ -71,6 +71,7 @@ export class CheckWorker {
   stop(): void { this.running = false; }
 
   async disconnect(): Promise<void> {
+    logger.info({ activeJobs: this.activeJobs.size, semaphoreAvailable: this.semaphore.available, semaphoreQueued: this.semaphore.queued }, 'CheckWorker draining');
     await Promise.allSettled([...this.activeJobs]);
     await checkResultBatcher.drain();
     const { closeWorkerRedis } = await import('./redis.js');
