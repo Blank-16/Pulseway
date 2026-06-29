@@ -10,6 +10,19 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_ENV: test
+  DATABASE_URL: postgresql://pulseway:pulseway@localhost:5433/pulseway_test
+  REDIS_URL: redis://localhost:6380
+  CHECK_JOBS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/check-jobs.fifo
+  ALERT_JOBS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/alert-jobs.fifo
+  JWT_SECRET: test-jwt-secret-for-ci-min-32-chars-long
+  STRIPE_SECRET_KEY: sk_test_dummy
+  STRIPE_WEBHOOK_SECRET: whsec_dummy
+  STRIPE_PRICE_PRO_MONTHLY: price_dummy
+  STRIPE_PRICE_TEAM_MONTHLY: price_dummy
+  SES_FROM_ADDRESS: test@pulseway.dev
+
 jobs:
   typecheck:
     name: Type Check
@@ -21,7 +34,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # tsc --build checks the full reference graph in one pass
@@ -37,7 +50,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
@@ -52,7 +65,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vitest run --reporter=verbose
@@ -88,7 +101,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vitest run --config vitest.integration.config.ts
@@ -108,7 +121,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --build

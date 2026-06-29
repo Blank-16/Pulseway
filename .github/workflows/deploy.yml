@@ -50,6 +50,13 @@ jobs:
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: test-jwt-secret-for-ci-min-32-chars-long
       NODE_ENV: test
+      CHECK_JOBS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/check-jobs.fifo
+      ALERT_JOBS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/alert-jobs.fifo
+      STRIPE_SECRET_KEY: sk_test_dummy
+      STRIPE_WEBHOOK_SECRET: whsec_dummy
+      STRIPE_PRICE_PRO_MONTHLY: price_dummy
+      STRIPE_PRICE_TEAM_MONTHLY: price_dummy
+      SES_FROM_ADDRESS: test@pulseway.dev
     steps:
       - uses: actions/checkout@v4
 
