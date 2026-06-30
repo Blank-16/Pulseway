@@ -4,13 +4,13 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    include: ['packages/*/src/**/*.test.ts', 'tests/**/*.test.ts'],
-    exclude: ['tests/smoke/**'],
+    include: ['packages/*/src/**/*.test.ts'],
+    exclude: ['tests/**'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: 'forks',
     poolOptions: {
-      forks: { singleFork: true }, // Integration tests share state — run sequentially per file
+      forks: { singleFork: true },
     },
   },
 });
