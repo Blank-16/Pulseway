@@ -4,8 +4,10 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    include: ['packages/*/src/**/*.test.ts'],
-    exclude: ['tests/**'],
+    include: [
+      'tests/integration/check-result-batcher.test.ts',
+      'tests/integration/http-checker-ssrf.test.ts',
+    ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: 'forks',

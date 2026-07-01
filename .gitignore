@@ -20,3 +20,7 @@ terraform.tfstate.backup
 localstack_data/
 postgres_data/
 redis_data/
+.antigravitycli/
+AGENT.md
+
+
