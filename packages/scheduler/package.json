@@ -16,6 +16,7 @@
     "@pulseway/db": "workspace:*",
     "@pulseway/types": "workspace:*",
     "ioredis": "^5.10.1",
+    "pino": "^9.0.0",
     "@azure/service-bus": "^7.9.5"
   },
   "devDependencies": {
