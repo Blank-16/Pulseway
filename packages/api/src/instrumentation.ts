@@ -21,7 +21,7 @@ if (isEnabled) {
     spanProcessors: [
       new SimpleSpanProcessor(
         new OTLPTraceExporter({
-          url: process.env['OTEL_EXPORTER_OTLP_ENDPOINT'],
+          url: process.env['OTEL_EXPORTER_OTLP_ENDPOINT']!,
         }),
       ),
     ],

@@ -19,7 +19,11 @@ export function inc(name: string, help: string, amount = 1, labels?: Record<stri
   if (existing) {
     existing.value += amount;
   } else {
-    counters.set(key, { value: amount, help, labels });
+    const c: Counter = { value: amount, help };
+    if (labels !== undefined) {
+      c.labels = labels;
+    }
+    counters.set(key, c);
   }
 }
 

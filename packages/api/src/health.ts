@@ -17,10 +17,10 @@ export async function readinessHandler(_req: Request, res: Response): Promise<vo
   const checks: Record<string, 'ok' | 'error'> = { database: 'ok', redis: 'ok' };
 
   await Promise.allSettled([
-    checkPoolHealth().then((ok) => { if (!ok) checks.database = 'error'; }),
+    checkPoolHealth().then((ok) => { if (!ok) checks['database'] = 'error'; }),
     getCacheClient().ping().then((reply) => {
-      if (reply !== 'PONG') checks.redis = 'error';
-    }).catch(() => { checks.redis = 'error'; }),
+      if (reply !== 'PONG') checks['redis'] = 'error';
+    }).catch(() => { checks['redis'] = 'error'; }),
   ]);
 
   const allOk = Object.values(checks).every((v) => v === 'ok');

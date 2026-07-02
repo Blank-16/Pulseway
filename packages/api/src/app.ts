@@ -42,10 +42,13 @@ export async function createApp(): Promise<AppInstance> {
   // Security headers — helmet sets X-Content-Type-Options, X-Frame-Options,
   // Strict-Transport-Security, X-XSS-Protection, and a restrictive CSP.
   // contentSecurityPolicy is loosened for the API (no inline scripts served).
-  app.use(helmet({
-    contentSecurityPolicy: config.NODE_ENV === 'production' ? undefined : false,
+  const helmetOpts: Record<string, any> = {
     crossOriginEmbedderPolicy: false,
-  }));
+  };
+  if (config.NODE_ENV !== 'production') {
+    helmetOpts['contentSecurityPolicy'] = false;
+  }
+  app.use(helmet(helmetOpts));
 
   const allowedOrigins =
     config.NODE_ENV === 'production'
@@ -110,12 +113,12 @@ export async function createApp(): Promise<AppInstance> {
       <rapi-doc spec-url="/api/openapi.json" theme="dark" show-header="false" render-style="read" style="height:100vh;width:100%"></rapi-doc>
       </body></html>`);
   });
-  app.get('/health/live',  livenessHandler);
-  app.get('/health/ready', readinessHandler);
+  app.get('/health/live',  livenessHandler as any);
+  app.get('/health/ready', readinessHandler as any);
   // Legacy alias
-  app.get('/health', readinessHandler);
+  app.get('/health', readinessHandler as any);
 
-  app.use(errorHandler);
+  app.use(errorHandler as any);
 
   return { express: app, sseManager };
 }
