@@ -132,3 +132,7 @@ export function getConfig(): AppConfig {
 export { injectTraceContext, extractTraceContext } from './telemetry.js';
 
 export { ServiceBusSender } from './servicebus.js';
+
+export { sendEmail } from './email.js';
+export type { EmailPayload } from './email.js';
+

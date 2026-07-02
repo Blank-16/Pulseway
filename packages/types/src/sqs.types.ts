@@ -9,9 +9,9 @@ export interface SqsCheckJob {
   expectedStatusCode: number;
   region            : string;
   enqueuedAt        : string;
-  bodyContains?     : string;
-  bodyJsonPath?     : string;
-  bodyJsonValue?    : string;
+  bodyContains?     : string | null | undefined;
+  bodyJsonPath?     : string | null | undefined;
+  bodyJsonValue?    : string | null | undefined;
 }
 
 export interface SqsAlertJob {

@@ -18,7 +18,7 @@ export interface EmailPayload {
 async function sendViaSES(payload: EmailPayload): Promise<void> {
   const { SESClient, SendEmailCommand } = await import('@aws-sdk/client-ses');
   const config = getConfig();
-  const client = new SESClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
+  const client = new SESClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL } as any);
   await client.send(
     new SendEmailCommand({
       Source     : config.SES_FROM_ADDRESS,

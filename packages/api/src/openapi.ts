@@ -183,7 +183,7 @@ registry.registerPath({ method: 'get', path: '/metrics',      summary: 'Promethe
 
 // Generate the spec
 const generator = new OpenApiGeneratorV31(registry.definitions);
-export const openApiSpec = generator.generateDocument({
+export const openApiSpec: any = generator.generateDocument({
   openapi: '3.1.0',
   info   : {
     title      : 'Pulseway API',
