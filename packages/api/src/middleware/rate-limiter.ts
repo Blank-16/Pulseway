@@ -26,7 +26,7 @@ redis.call('PEXPIRE', key, win)
 return 1
 `;
 
-function extractClientIp(req: Request): string {
+function extractClientIp(req: any): string {
   // Trust the rightmost IP added by the ALB/proxy — not the leftmost (client-spoofable).
   // Requires app.set('trust proxy', N) where N = number of trusted proxy hops.
   // req.ip already handles this correctly when trust proxy is configured.
@@ -36,7 +36,7 @@ function extractClientIp(req: Request): string {
 export function rateLimiter(options: RateLimiterOptions): RequestHandler {
   const { limit, windowMs, keyPrefix = 'rl' } = options;
 
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  return async (req: any, res: Response, next: NextFunction): Promise<void> => {
     const ip  = extractClientIp(req);
     const key = `${keyPrefix}:${req.path}:${ip}`;
     const now = Date.now();

@@ -7,7 +7,7 @@ import { AppError, ErrorCode } from '../errors.js';
  * Set METRICS_TOKEN in env; scraper (Prometheus, Datadog agent) sends it as Authorization header.
  */
 export function metricsAuth(): RequestHandler {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  return (req: any, _res: Response, next: NextFunction): void => {
     const config = getConfig();
     // If no token is configured, allow only in non-production
     if (!config.METRICS_TOKEN) {

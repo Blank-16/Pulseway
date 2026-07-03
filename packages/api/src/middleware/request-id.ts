@@ -9,7 +9,7 @@ declare module 'express' {
 }
 
 export function requestId(): RequestHandler {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  return (req: any, _res: Response, next: NextFunction): void => {
     req.id = (req.headers['x-request-id'] as string | undefined) ?? randomUUID();
 
     // Attach OTEL trace/span IDs to the request so pino-http can pick them up
