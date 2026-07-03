@@ -12,7 +12,7 @@ export function eventsRoutes(sseManager: SSEManager): Router {
 
   router.get('/workspace/:workspaceId',
     handler(authenticate),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const workspaceId = req.params['workspaceId']!;
       const role = await getMemberRole(req.user.id, workspaceId);
       if (!role) throw AppError.forbidden('Access denied');

@@ -21,7 +21,7 @@ export function apiKeyRoutes(): Router {
 
   router.get('/workspace/:workspaceId',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const keys = await repo.listByWorkspace(req.params['workspaceId']!);
       // Never expose key_hash — only prefix + metadata
       res.json({ data: keys });
@@ -31,7 +31,7 @@ export function apiKeyRoutes(): Router {
   router.post('/workspace/:workspaceId',
     authHandler(authorize('admin')),
     handler(validateBody(CreateApiKeySchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const { apiKey, rawKey } = await repo.create(
         req.params['workspaceId']!,
         req.body.name,
@@ -46,7 +46,7 @@ export function apiKeyRoutes(): Router {
 
   router.delete('/workspace/:workspaceId/:keyId',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const revoked = await repo.revoke(req.params['keyId']!, req.params['workspaceId']!);
       if (!revoked) throw AppError.notFound('API key not found');
       res.status(204).end();

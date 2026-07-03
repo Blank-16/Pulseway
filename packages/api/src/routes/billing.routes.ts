@@ -21,7 +21,7 @@ export function billingRoutes(): Router {
   const billingService = new BillingService();
 
   // Raw body applied in app.ts before json() — do NOT add express.json() here
-  router.post('/webhook', handler(async (req, res) => {
+  router.post('/webhook', handler(async (req: any, res) => {
     const sig = req.headers['stripe-signature'] as string | undefined;
     if (!sig) throw AppError.badRequest('Missing stripe-signature header');
     await billingService.handleWebhook(req.body as Buffer, sig);
@@ -33,7 +33,7 @@ export function billingRoutes(): Router {
   router.post('/workspace/:workspaceId/checkout',
     authHandler(authorize('owner')),
     handler(validateBody(CheckoutSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const url = await billingService.createCheckoutSession(
         req.params['workspaceId']!,
         req.body.priceId,
@@ -47,7 +47,7 @@ export function billingRoutes(): Router {
   router.post('/workspace/:workspaceId/portal',
     authHandler(authorize('owner')),
     handler(validateBody(PortalSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const config    = getConfig();
       const returnUrl = req.body.returnUrl ?? `${config.APP_ORIGIN}/billing`;
       const url       = await billingService.createPortalSession(req.params['workspaceId']!, returnUrl);

@@ -33,7 +33,7 @@ export function validateQuery<T extends z.ZodTypeAny>(schema: T) {
       });
       return;
     }
-    req.query = result.data;
+    req.query = result.data as any;
     next();
   };
 }
