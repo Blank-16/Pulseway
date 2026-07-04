@@ -12,7 +12,7 @@ const CreateMonitorSchema = z.object({
   name                : z.string().min(1).max(200).trim(),
   url                 : z.string().url(),
   httpMethod          : z.enum(['GET', 'POST', 'HEAD']).default('GET'),
-  requestHeaders      : z.record(z.string()).default({}),
+  requestHeaders      : z.record(z.string(), z.string()).default({}),
   expectedStatusCode  : z.number().int().min(100).max(599).default(200),
   checkIntervalSeconds: z.union([z.literal(30), z.literal(60), z.literal(300), z.literal(600)]).default(60),
   regionCodes         : z.array(z.string().min(1)).min(1).max(10).default(['us-east-1']),
@@ -39,7 +39,7 @@ export function monitorRoutes(): Router {
 
   router.get('/workspace/:workspaceId',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const pageSize = Math.min(Number(req.query['pageSize'] ?? 200), 500);
       const cursor   = typeof req.query['cursor'] === 'string' ? req.query['cursor'] : undefined;
       const result   = await monitorService.list(req.params['workspaceId']!, pageSize, cursor);
@@ -50,7 +50,7 @@ export function monitorRoutes(): Router {
   router.post('/workspace/:workspaceId',
     authHandler(authorize('admin')),
     handler(validateBody(CreateMonitorSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const monitor = await monitorService.create(req.params['workspaceId']!, req.body);
       auditService.log({ workspaceId: req.params['workspaceId']!, action: 'monitor.create', resourceType: 'monitor', resourceId: monitor.id, diff: req.body, req });
       res.status(201).json({ data: monitor });
@@ -59,7 +59,7 @@ export function monitorRoutes(): Router {
 
   router.get('/:id/workspace/:workspaceId',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const id          = req.params['id']!;
       const workspaceId = req.params['workspaceId']!;
       // All three calls validate workspace ownership — no cross-workspace data leak
@@ -75,7 +75,7 @@ export function monitorRoutes(): Router {
   router.patch('/:id/workspace/:workspaceId',
     authHandler(authorize('admin')),
     handler(validateBody(UpdateMonitorSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       // If-Match: <updatedAt> enables optimistic locking — 409 on stale write
       const ifMatch = req.headers['if-match'] as string | undefined;
       const monitor = await monitorService.update(
@@ -88,7 +88,7 @@ export function monitorRoutes(): Router {
 
   router.delete('/:id/workspace/:workspaceId',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       await monitorService.delete(req.params['id']!, req.params['workspaceId']!);
       auditService.log({ workspaceId: req.params['workspaceId']!, action: 'monitor.delete', resourceType: 'monitor', resourceId: req.params['id']!, req });
       res.status(204).end();
@@ -98,7 +98,7 @@ export function monitorRoutes(): Router {
   router.get('/:id/workspace/:workspaceId/stats',
     authHandler(authorize('viewer')),
     handler(validateQuery(StatsQuerySchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const hours = RANGE_HOURS[req.query['range'] as string] ?? 24;
       const stats = await monitorService.getStats(req.params['id']!, req.params['workspaceId']!, hours);
       res.json({ data: stats });
@@ -107,7 +107,7 @@ export function monitorRoutes(): Router {
 
   router.get('/:id/workspace/:workspaceId/checks',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       // Ownership enforced by the service before reading checks
       await monitorService.get(req.params['id']!, req.params['workspaceId']!);
       const limit  = Math.min(Number(req.query['limit'] ?? 100), 500);

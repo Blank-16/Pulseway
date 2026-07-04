@@ -24,9 +24,12 @@ export class MonitorService {
 
     // Strip body assertions if feature flag is disabled for this workspace
     const bodyAssertionsEnabled = await featureFlags.isEnabled('body_assertions', workspaceId);
-    const sanitizedDto = bodyAssertionsEnabled
-      ? dto
-      : { ...dto, bodyContains: undefined, bodyJsonPath: undefined, bodyJsonValue: undefined };
+    const sanitizedDto: CreateMonitorDTO = { ...dto };
+    if (!bodyAssertionsEnabled) {
+      delete sanitizedDto.bodyContains;
+      delete sanitizedDto.bodyJsonPath;
+      delete sanitizedDto.bodyJsonValue;
+    }
 
     const monitor = await this.monitorRepo.insert(workspaceId, sanitizedDto);
     await getPublishClient().publish(

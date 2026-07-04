@@ -13,7 +13,7 @@ const InviteSchema = z.object({ email: z.string().email(), role: z.enum(['admin'
 const UpdateRoleSchema = z.object({ role: z.enum(['admin', 'viewer']) });
 const ChannelSchema = z.object({
   channelType: z.enum(['email', 'slack', 'discord', 'webhook']),
-  config: z.record(z.string()),
+  config: z.record(z.string(), z.string()),
   isActive: z.boolean().default(true),
 });
 
@@ -25,14 +25,14 @@ export function teamRoutes(): Router {
   const router = Router();
   router.use(handler(authenticate));
 
-  router.get('/workspaces', authHandler(async (req, res) => {
+  router.get('/workspaces', authHandler(async (req: any, res) => {
     const workspaces = await workspaceRepo.findUserWorkspaces(req.user.id);
     res.json({ data: workspaces });
   }));
 
   router.get('/workspace/:workspaceId/members',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       res.json({ data: await workspaceRepo.listMembers(req.params['workspaceId']!) });
     }),
   );
@@ -40,7 +40,7 @@ export function teamRoutes(): Router {
   router.post('/workspace/:workspaceId/members',
     authHandler(authorize('admin')),
     handler(validateBody(InviteSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const user = await userRepo.findByEmail(req.body.email);
       if (!user) throw AppError.notFound('No user found with that email');
       await workspaceRepo.addMember(user.id, req.params['workspaceId']!, req.body.role as MemberRole);
@@ -52,7 +52,7 @@ export function teamRoutes(): Router {
   router.patch('/workspace/:workspaceId/members/:userId',
     authHandler(authorize('admin')),
     handler(validateBody(UpdateRoleSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       if (req.params['userId'] === req.user.id) throw AppError.badRequest('Cannot change your own role');
       await workspaceRepo.addMember(req.params['userId']!, req.params['workspaceId']!, req.body.role as MemberRole);
       await invalidateMembershipCache(req.params['userId']!, req.params['workspaceId']!);
@@ -62,7 +62,7 @@ export function teamRoutes(): Router {
 
   router.delete('/workspace/:workspaceId/members/:userId',
     authHandler(authorize('owner')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       if (req.params['userId'] === req.user.id) throw AppError.badRequest('Cannot remove yourself');
       await workspaceRepo.removeMember(req.params['userId']!, req.params['workspaceId']!);
       await invalidateMembershipCache(req.params['userId']!, req.params['workspaceId']!);
@@ -72,7 +72,7 @@ export function teamRoutes(): Router {
 
   router.get('/workspace/:workspaceId/channels',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       res.json({ data: await channelRepo.findByWorkspace(req.params['workspaceId']!) });
     }),
   );
@@ -80,7 +80,7 @@ export function teamRoutes(): Router {
   router.post('/workspace/:workspaceId/channels',
     authHandler(authorize('admin')),
     handler(validateBody(ChannelSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const channel = await channelRepo.insert(req.params['workspaceId']!, req.body.channelType as NotificationChannelType, req.body.config);
       res.status(201).json({ data: channel });
     }),
@@ -89,7 +89,7 @@ export function teamRoutes(): Router {
   router.patch('/workspace/:workspaceId/channels/:channelId',
     authHandler(authorize('admin')),
     handler(validateBody(ChannelSchema.partial())),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const channel = await channelRepo.update(req.params['channelId']!, req.body.config ?? {}, req.body.isActive ?? true);
       if (!channel) throw AppError.notFound('Channel not found');
       res.json({ data: channel });
@@ -98,7 +98,7 @@ export function teamRoutes(): Router {
 
   router.delete('/workspace/:workspaceId/channels/:channelId',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       await channelRepo.delete(req.params['channelId']!);
       res.status(204).end();
     }),

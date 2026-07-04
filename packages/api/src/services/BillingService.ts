@@ -7,7 +7,7 @@ import type { WorkspacePlan } from '@pulseway/types';
 let stripeClient: Stripe | null = null;
 function getStripe(): Stripe {
   if (!stripeClient) {
-    stripeClient = new Stripe(getConfig().STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' });
+    stripeClient = new Stripe(getConfig().STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' as any });
   }
   return stripeClient;
 }
@@ -50,14 +50,17 @@ export class BillingService {
     const workspace = await this.workspaceRepo.findById(workspaceId);
     if (!workspace) throw AppError.notFound('Workspace not found');
 
-    const session = await getStripe().checkout.sessions.create({
+    const params: Stripe.Checkout.SessionCreateParams = {
       mode       : 'subscription',
-      customer   : workspace.stripeCustomerId ?? undefined,
       line_items : [{ price: priceId, quantity: 1 }],
       success_url: successUrl,
       cancel_url : cancelUrl,
       metadata   : { workspaceId },
-    });
+    };
+    if (workspace.stripeCustomerId) {
+      params.customer = workspace.stripeCustomerId;
+    }
+    const session = await getStripe().checkout.sessions.create(params);
 
     if (!session.url) throw new AppError(500, ErrorCode.INTERNAL, 'Failed to create checkout session');
     return session.url;
@@ -94,7 +97,7 @@ export class BillingService {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session     = event.data.object as Stripe.Checkout.Session;
-        const workspaceId = session.metadata?.workspaceId;
+        const workspaceId = session.metadata?.['workspaceId'];
         if (!workspaceId || !session.customer || !session.subscription) break;
         await this.workspaceRepo.updateStripeIds(
           workspaceId,
