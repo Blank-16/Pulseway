@@ -16,7 +16,7 @@ export function incidentRoutes(): Router {
 
   router.get('/workspace/:workspaceId',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const pageSize = Math.min(Number(req.query['pageSize'] ?? 20), 100);
       const cursor   = typeof req.query['cursor'] === 'string' ? req.query['cursor'] : undefined;
       const result   = await incidentService.list(req.params['workspaceId']!, pageSize, cursor);
@@ -26,7 +26,7 @@ export function incidentRoutes(): Router {
 
   router.get('/:id/workspace/:workspaceId',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const [incident, timeline] = await Promise.all([
         incidentService.get(req.params['id']!, req.params['workspaceId']!),
         incidentService.getTimeline(req.params['id']!, req.params['workspaceId']!),
@@ -37,7 +37,7 @@ export function incidentRoutes(): Router {
 
   router.post('/:id/workspace/:workspaceId/acknowledge',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const incident = await incidentService.acknowledge(req.params['id']!, req.params['workspaceId']!, req.user.id);
       auditService.log({ workspaceId: req.params['workspaceId']!, action: 'incident.acknowledge', resourceType: 'incident', resourceId: req.params['id']!, req });
       res.json({ data: incident });
@@ -46,7 +46,7 @@ export function incidentRoutes(): Router {
 
   router.post('/:id/workspace/:workspaceId/resolve',
     authHandler(authorize('admin')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const incident = await incidentService.resolve(req.params['id']!, req.params['workspaceId']!, req.user.id);
       auditService.log({ workspaceId: req.params['workspaceId']!, action: 'incident.resolve', resourceType: 'incident', resourceId: req.params['id']!, req });
       res.json({ data: incident });
@@ -56,7 +56,7 @@ export function incidentRoutes(): Router {
   router.post('/:id/workspace/:workspaceId/notes',
     authHandler(authorize('viewer')),
     handler(validateBody(NoteSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const event = await incidentService.addNote(req.params['id']!, req.params['workspaceId']!, req.user.id, req.body.note);
       res.status(201).json({ data: event });
     }),

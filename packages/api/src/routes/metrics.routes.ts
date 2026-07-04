@@ -11,7 +11,7 @@ const STALE_AFTER  = 120;
 export function metricsRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  router.get('/', async (_req: Request, res: Response) => {
+  router.get('/', async (_req: any, res: any) => {
     setGauge(Metrics.SSE_CONNECTIONS, 'Active SSE connections', sseManager.totalConnections);
 
     // Fetch worker counters + scheduler timestamp in a single connection

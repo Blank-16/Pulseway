@@ -17,7 +17,7 @@ export function featureFlagRoutes(): Router {
 
   router.get('/workspace/:workspaceId',
     authHandler(authorize('viewer')),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       const flags = await featureFlags.listFlags(req.params['workspaceId']!);
       res.json({ data: flags });
     }),
@@ -27,7 +27,7 @@ export function featureFlagRoutes(): Router {
   router.put('/workspace/:workspaceId/:flagName',
     authHandler(authorize('admin')),
     handler(validateBody(SetFlagSchema)),
-    authHandler(async (req, res) => {
+    authHandler(async (req: any, res) => {
       await featureFlags.setFlag(
         req.params['flagName']!,
         req.body.enabled,

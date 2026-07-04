@@ -16,7 +16,7 @@ export function statusRoutes(sseManager?: SSEManager): Router {
   const router = Router();
 
   // Public status page data — no auth required
-  router.get('/:slug', handler(async (req, res) => {
+  router.get('/:slug', handler(async (req: any, res) => {
     const workspace = await workspaceRepo.findBySlug(req.params['slug']!);
     if (!workspace) throw AppError.notFound('Status page not found');
 
@@ -60,7 +60,7 @@ export function statusRoutes(sseManager?: SSEManager): Router {
   }));
 
   // SSE stream for the public status page — no auth, workspace-scoped
-  router.get('/:slug/events', handler(async (req, res) => {
+  router.get('/:slug/events', handler(async (req: any, res) => {
     if (!sseManager) { res.status(503).end(); return; }
 
     const workspace = await workspaceRepo.findBySlug(req.params['slug']!);
