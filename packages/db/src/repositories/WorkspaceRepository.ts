@@ -104,15 +104,18 @@ export class WorkspaceRepository {
        ORDER BY wm.joined_at`,
       [workspaceId],
     );
-    return rows.map((r) => ({
-      userId: r.user_id,
-      workspaceId: r.workspace_id,
-      role: r.role as MemberRole,
-      joinedAt: r.joined_at.toISOString(),
-      user: r.user_email
-        ? { id: r.user_id, email: r.user_email, name: r.user_name ?? '' }
-        : undefined,
-    }));
+    return rows.map((r) => {
+      const member: WorkspaceMember = {
+        userId: r.user_id,
+        workspaceId: r.workspace_id,
+        role: r.role as MemberRole,
+        joinedAt: r.joined_at.toISOString(),
+      };
+      if (r.user_email) {
+        member.user = { id: r.user_id, email: r.user_email, name: r.user_name ?? '' };
+      }
+      return member;
+    });
   }
 
   async removeMember(userId: string, workspaceId: string): Promise<void> {

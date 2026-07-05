@@ -1,4 +1,5 @@
 import { getPool } from '../client.js';
+import { type PoolClient } from 'pg';
 import { createHash, randomBytes } from 'node:crypto';
 
 interface RefreshTokenRow {
@@ -132,7 +133,7 @@ export class RefreshTokenRepository {
 
   // Revokes the token with the given ID and all tokens in its replacement chain
   private async revokeChain(
-    client: Awaited<ReturnType<ReturnType<typeof getPool>['connect']>>,
+    client: PoolClient,
     rootId: string,
   ): Promise<void> {
     // Revoke all tokens in the same session — per-device isolation

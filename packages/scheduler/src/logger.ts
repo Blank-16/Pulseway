@@ -5,5 +5,5 @@ export const logger = pino({
   level    : getConfig().LOG_LEVEL,
   base     : { service: 'scheduler', pid: process.pid },
   timestamp: pino.stdTimeFunctions.isoTime,
-  formatters: { level: (label) => ({ level: label }) },
+  formatters: { level: (label: string) => ({ level: label }) },
 });

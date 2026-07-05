@@ -37,8 +37,8 @@ export class StatsRepository {
         [monitorId, rangeHours],
       );
       return rows.map((r) => ({
-        bucket: r.bucket.toISOString(),
-        p50: r.p50 ?? 0, p75: r.p75 ?? 0, p95: r.p95 ?? 0, p99: r.p99 ?? 0,
+        bucketStart: r.bucket.toISOString(),
+        p50: r.p50 ?? 0, p95: r.p95 ?? 0, p99: r.p99 ?? 0,
       }));
     }
 
@@ -52,11 +52,10 @@ export class StatsRepository {
     );
 
     return rows.map((r) => ({
-      bucket: r.hour_bucket.toISOString(),
-      p50   : r.p50_ms ?? 0,
-      p75   : r.p75_ms ?? 0,
-      p95   : r.p95_ms ?? 0,
-      p99   : r.p99_ms ?? 0,
+      bucketStart: r.hour_bucket.toISOString(),
+      p50        : r.p50_ms ?? 0,
+      p95        : r.p95_ms ?? 0,
+      p99        : r.p99_ms ?? 0,
     }));
   }
 
