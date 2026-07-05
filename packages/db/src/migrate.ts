@@ -12,7 +12,7 @@ const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
-const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
 function checksum(sql: string): string {
   return createHash('sha256').update(sql).digest('hex').slice(0, 16);

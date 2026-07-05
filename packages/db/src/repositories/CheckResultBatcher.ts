@@ -18,7 +18,7 @@ interface PendingItem {
 const FLUSH_INTERVAL_MS = 200;
 const MAX_BATCH_SIZE    = 100;
 
-class CheckResultBatcher {
+export class CheckResultBatcher {
   private queue: PendingItem[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Set<Promise<void>> = new Set();

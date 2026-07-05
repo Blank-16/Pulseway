@@ -1,4 +1,4 @@
-import { getPool } from '../client.js';
+import { getPool } from './client.js';
 import type { CheckResult } from '@pulseway/types';
 
 interface InsertParams {
@@ -81,7 +81,7 @@ export class CheckResultBatcher {
       values,
     );
 
-    rows.forEach((row, i) => {
+    rows.forEach((row: any, i: number) => {
       const pending = batch[i];
       if (!pending) return;
       pending.resolve({

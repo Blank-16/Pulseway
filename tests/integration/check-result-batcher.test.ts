@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockQuery = vi.fn();
-vi.mock('@pulseway/db/src/client.js', () => ({
+vi.mock('../../packages/db/src/client.js', () => ({
   getPool: () => ({ query: mockQuery }),
 }));
 vi.mock('@pulseway/db', () => ({
   getPool: () => ({ query: mockQuery }),
 }));
+
 
 import { CheckResultBatcher } from '../../packages/db/src/repositories/CheckResultBatcher.js';
 
