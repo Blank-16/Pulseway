@@ -5,7 +5,7 @@ import { sendSlack } from './channels/slack.js';
 import { sendDiscord } from './channels/discord.js';
 import { sendWebhook } from './channels/webhook.js';
 import { logger } from './logger.js';
-import { ServiceBusAdapter, ServiceBusSender } from './queue/ServiceBusAdapter.js';
+import { ServiceBusAdapter, ServiceBusSender, type QueueMessage } from './queue/ServiceBusAdapter.js';
 import type { SqsAlertJob, NotificationChannel } from '@pulseway/types';
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -52,7 +52,7 @@ export class AzureAlertWorker {
   stop(): void { this.running = false; }
 
   private async processMessage(
-    message: { messageId?: string; body: string; receiptHandle: string },
+    message: QueueMessage,
   ): Promise<void> {
     let job: SqsAlertJob;
     try {
@@ -75,7 +75,7 @@ export class AzureAlertWorker {
     }
   }
 
-  private async dispatchAlerts(job: SqsAlertJob, log: ReturnType<typeof logger.child>): Promise<void> {
+  private async dispatchAlerts(job: SqsAlertJob, log: any): Promise<void> {
     const [incident, monitor, channels] = await Promise.all([
       this.incidentRepo.findById(job.incidentId),
       this.monitorRepo.findById(job.monitorId),
@@ -101,7 +101,7 @@ export class AzureAlertWorker {
 
   private async sendToChannel(
     channel: NotificationChannel, job: SqsAlertJob,
-    subject: string, text: string, log: ReturnType<typeof logger.child>,
+    subject: string, text: string, log: any,
   ): Promise<void> {
     const clog = log.child({ channelId: channel.id, channelType: channel.channelType });
     try {
@@ -115,9 +115,21 @@ export class AzureAlertWorker {
         case 'discord':
           await sendDiscord({ webhookUrl: channel.config['webhookUrl'] ?? '', content: subject });
           break;
-        case 'webhook':
-          await sendWebhook({ webhookUrl: channel.config['url'] ?? '', secret: channel.config['secret'], event: job.eventType === 'opened' ? 'incident.opened' : 'incident.resolved', monitorName: 'unknown', monitorUrl: '', incidentId: job.incidentId, startedAt: new Date().toISOString() });
+        case 'webhook': {
+          const webhookPayload: any = {
+            webhookUrl: channel.config['url'] ?? '',
+            event: job.eventType === 'opened' ? 'incident.opened' : 'incident.resolved',
+            monitorName: 'unknown',
+            monitorUrl: '',
+            incidentId: job.incidentId,
+            startedAt: new Date().toISOString()
+          };
+          if (channel.config['secret'] !== undefined) {
+            webhookPayload.secret = channel.config['secret'];
+          }
+          await sendWebhook(webhookPayload);
           break;
+        }
       }
       clog.info('Channel notified');
       await this.alertLogRepo.insert({ incidentId: job.incidentId, channelType: channel.channelType, status: 'sent' });

@@ -17,7 +17,7 @@ import { sendSlack } from './channels/slack.js';
 import { sendDiscord } from './channels/discord.js';
 import { sendWebhook } from './channels/webhook.js';
 import { logger } from './logger.js';
-import type { SqsAlertJob, NotificationChannel } from '@pulseway/types';
+import type { SqsAlertJob, NotificationChannel, Monitor, Incident } from '@pulseway/types';
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS     = 30_000;
@@ -35,7 +35,7 @@ export class AlertWorker {
 
   constructor() {
     const config   = getConfig();
-    this.sqsClient = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
+    this.sqsClient = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL } as any);
   }
 
   async start(): Promise<void> {
@@ -94,7 +94,7 @@ export class AlertWorker {
     }
   }
 
-  private async dispatchAlerts(job: SqsAlertJob, log: ReturnType<typeof logger.child>): Promise<void> {
+  private async dispatchAlerts(job: SqsAlertJob, log: any): Promise<void> {
     const [incident, monitor, channels] = await Promise.all([
       this.incidentRepo.findById(job.incidentId),
       this.monitorRepo.findById(job.monitorId),
@@ -116,7 +116,7 @@ export class AlertWorker {
       : `Monitor "${monitor.name}" (${monitor.url}) has recovered.\nDuration: ${incident.durationSeconds ?? 0}s`;
 
     const results = await Promise.allSettled(
-      channels.map((ch) => this.sendToChannel(ch, job, subject, text, log)),
+      channels.map((ch) => this.sendToChannel(ch, job, subject, text, log, monitor, incident)),
     );
 
     const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -130,7 +130,9 @@ export class AlertWorker {
     job: SqsAlertJob,
     subject: string,
     text: string,
-    log: ReturnType<typeof logger.child>,
+    log: any,
+    monitor: Monitor,
+    incident: Incident,
   ): Promise<void> {
     const channelLog = log.child({ channelId: channel.id, channelType: channel.channelType });
     try {
@@ -150,16 +152,21 @@ export class AlertWorker {
           await sendDiscord({ webhookUrl: channel.config['webhookUrl'] ?? '', content: subject });
           break;
         case 'webhook': {
-          const result = await sendWebhook({
+          const payload: any = {
             webhookUrl : channel.config['url'] ?? '',
-            secret     : channel.config['secret'],
             event      : job.eventType === 'opened' ? 'incident.opened' : 'incident.resolved',
             monitorName: monitor.name,
             monitorUrl : monitor.url,
             incidentId : job.incidentId,
             startedAt  : incident.startedAt,
-            durationSec: incident.durationSeconds ?? undefined,
-          });
+          };
+          if (channel.config['secret']) {
+            payload.secret = channel.config['secret'];
+          }
+          if (incident.durationSeconds !== null && incident.durationSeconds !== undefined) {
+            payload.durationSec = incident.durationSeconds;
+          }
+          const result = await sendWebhook(payload);
           if (result.status >= 400) {
             throw new Error(`Webhook returned HTTP ${result.status}`);
           }

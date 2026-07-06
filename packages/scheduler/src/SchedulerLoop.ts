@@ -46,7 +46,7 @@ export class SchedulerLoop {
 
   constructor() {
     const config   = getConfig();
-    this.sqsClient = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
+    this.sqsClient = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL } as any);
     this.redis     = new Redis(config.REDIS_URL, {
       lazyConnect         : false,
       maxRetriesPerRequest: 3,
@@ -81,7 +81,7 @@ export class SchedulerLoop {
   async disconnect(): Promise<void> { await this.redis.quit(); }
 
   private async tick(): Promise<void> {
-    const acquired = await this.redis.set(LOCK_KEY, this.lockValue, 'NX', 'PX', LOCK_TTL_MS);
+    const acquired = await this.redis.set(LOCK_KEY, this.lockValue, 'PX', LOCK_TTL_MS, 'NX');
     if (!acquired) return;
 
     try {

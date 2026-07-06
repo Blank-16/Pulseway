@@ -7,7 +7,7 @@ import { getDataClient, getPubClient } from './redis.js';
 import { logger, jobLogger } from './logger.js';
 import { WorkerMetrics, WORKER_METRIC } from './WorkerMetrics.js';
 import { extractTraceContext } from './telemetry.js';
-import { ServiceBusAdapter } from './queue/ServiceBusAdapter.js';
+import { ServiceBusAdapter, type QueueMessage } from './queue/ServiceBusAdapter.js';
 import { context as otelContext } from '@opentelemetry/api';
 import type { SqsCheckJob } from '@pulseway/types';
 
@@ -74,7 +74,7 @@ export class AzureCheckWorker {
     await this.adapter.close();
   }
 
-  private async processMessage(message: { messageId?: string; body: string; receiptHandle: string }): Promise<void> {
+  private async processMessage(message: QueueMessage): Promise<void> {
     let job: SqsCheckJob;
     try {
       job = JSON.parse(message.body) as SqsCheckJob;
