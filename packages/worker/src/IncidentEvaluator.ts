@@ -33,7 +33,7 @@ export class IncidentEvaluator {
     private readonly redisPub : Redis,
   ) {
     const config             = getConfig();
-    this.sqsClient           = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL });
+    this.sqsClient           = new SQSClient({ region: config.AWS_REGION, endpoint: config.AWS_ENDPOINT_URL } as any);
     this.incidentRepo        = new IncidentRepository();
     this.onCallRepo          = new OnCallRepository();
     this.incidentGrouper     = new IncidentGrouper();

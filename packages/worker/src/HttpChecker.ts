@@ -18,9 +18,9 @@ interface CheckRequest {
   httpMethod        : string;
   requestHeaders    : Record<string, string>;
   expectedStatusCode: number;
-  bodyContains?     : string;
-  bodyJsonPath?     : string;
-  bodyJsonValue?    : string;
+  bodyContains?     : string | null | undefined;
+  bodyJsonPath?     : string | null | undefined;
+  bodyJsonValue?    : string | null | undefined;
 }
 
 const TIMEOUT_MS = 10_000;
@@ -52,7 +52,7 @@ function isPrivateIp(address: string): boolean {
   if (net.isIPv6(address)) return address === '::1' || address.startsWith('fc') || address.startsWith('fd');
   if (!net.isIPv4(address)) return false;
   const n = ip(address) >>> 0;
-  return BLOCKED_CIDRS.some(({ base, mask }) => (n & mask) === base);
+  return BLOCKED_CIDRS.some(({ base, mask }) => ((n & mask) >>> 0) === base);
 }
 
 async function assertSafeHost(hostname: string): Promise<void> {
@@ -151,9 +151,9 @@ function makeRequest(
 
 function evaluateBodyAssertion(
   body: string | undefined,
-  contains?: string,
-  jsonPath?: string,
-  jsonValue?: string,
+  contains?: string | null,
+  jsonPath?: string | null,
+  jsonValue?: string | null,
 ): string | null {
   if (!contains && !jsonPath) return null;
 
